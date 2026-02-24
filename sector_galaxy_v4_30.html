@@ -1064,7 +1064,7 @@
             <!-- サーバー接続状態 -->
             <div id="server-status" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:0.72rem;color:#666;padding:4px 6px;background:rgba(255,255,255,0.03);border-radius:4px;">
                 <div id="status-dot" style="width:8px;height:8px;border-radius:50%;background:#444;flex-shrink:0;transition:background 0.4s;"></div>
-                <span id="status-text">サーバー確認中...</span>
+                <span id="status-text">接続確認中...</span>
             </div>
 
             <!-- リアルタイム株価更新ボタン -->
@@ -1850,36 +1850,104 @@
         }
 
         // ============================================================
-        // リアルタイムAPI連携
+        // Yahoo Finance API 直接呼び出し（Python/サーバー不要）
         // ============================================================
-        const API_BASE = 'http://localhost:5000/api';
+        const YF_URL  = 'https://query1.finance.yahoo.com/v7/finance/quote';
+        const YF_BATCH = 25;   // 1リクエストあたりの最大ティッカー数
 
-        // サーバー接続確認
-        async function checkServerStatus() {
+        // Yahoo Finance 疎通テスト
+        async function checkYahooFinance() {
             try {
-                const res = await fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(2000) });
+                const res = await fetch(`${YF_URL}?symbols=%5EN225`, { signal: AbortSignal.timeout(5000) });
                 const json = await res.json();
-                return json.status === 'ok';
+                return !!(json.quoteResponse?.result?.length);
             } catch {
                 return false;
             }
         }
 
-        // 接続状態UIを更新
+        // 接続状態 UI を更新
         function setServerUI(online) {
-            const dot = document.getElementById('status-dot');
+            const dot  = document.getElementById('status-dot');
             const text = document.getElementById('status-text');
             if (online) {
-                dot.style.background = '#00ff88';
-                dot.style.boxShadow = '0 0 6px #00ff88';
-                text.textContent = 'サーバー接続中';
-                text.style.color = '#00ff88';
+                dot.style.background  = '#00ff88';
+                dot.style.boxShadow   = '0 0 6px #00ff88';
+                text.textContent      = 'Yahoo Finance 接続中';
+                text.style.color      = '#00ff88';
             } else {
-                dot.style.background = '#ff4444';
-                dot.style.boxShadow = 'none';
-                text.textContent = 'サーバー未接続（デモモード）';
-                text.style.color = '#ff4444';
+                dot.style.background  = '#ff4444';
+                dot.style.boxShadow   = 'none';
+                text.textContent      = 'オフライン（デモモード）';
+                text.style.color      = '#ff4444';
             }
+        }
+
+        // 複数ティッカーを分割してバッチ取得
+        async function fetchYahooBatch(tickers) {
+            const results = {};
+            for (let i = 0; i < tickers.length; i += YF_BATCH) {
+                const batch   = tickers.slice(i, i + YF_BATCH);
+                const symbols = batch.map(encodeURIComponent).join('%2C');
+                try {
+                    const res  = await fetch(`${YF_URL}?symbols=${symbols}`);
+                    const json = await res.json();
+                    for (const item of (json.quoteResponse?.result || [])) {
+                        const code = item.symbol.replace('.T', '');
+                        results[code] = {
+                            change: parseFloat((item.regularMarketChangePercent || 0).toFixed(2)),
+                            price:  item.regularMarketPrice || 0,
+                        };
+                    }
+                } catch (e) {
+                    console.warn('YF バッチエラー:', e);
+                }
+            }
+            return results;
+        }
+
+        // 全セクターデータを Yahoo Finance から構築
+        async function buildSectorDataFromYahoo() {
+            // 全銘柄コードを収集
+            const allCodes = new Set();
+            for (const companies of Object.values(COMPANY_DATABASE)) {
+                for (const c of companies) allCodes.add(`${c.code}.T`);
+            }
+            const quoteMap = await fetchYahooBatch([...allCodes]);
+
+            // セクターごとに時価総額加重平均を計算
+            return Object.keys(SECTOR_ROTATION_POS).map(sectorName => {
+                const companies = COMPANY_DATABASE[sectorName] || [];
+                const stocks = companies.map(c => ({
+                    ...c,
+                    change: (quoteMap[c.code]?.change ?? 0),
+                    price:  (quoteMap[c.code]?.price  ?? 0),
+                }));
+                const totalCap = stocks.reduce((s, c) => s + c.cap, 0);
+                const value    = totalCap > 0
+                    ? parseFloat((stocks.reduce((s, c) => s + c.change * c.cap, 0) / totalCap).toFixed(2))
+                    : 0;
+                return { name: sectorName, value, stocks };
+            });
+        }
+
+        // 市場指数を Yahoo Finance から取得
+        async function fetchMarketFromYahoo() {
+            const res  = await fetch(`${YF_URL}?symbols=%5EN225%2C1306.T%2C2516.T%2CJPY%3DX`);
+            const json = await res.json();
+            const map  = {};
+            for (const item of (json.quoteResponse?.result || [])) {
+                map[item.symbol] = {
+                    price:  item.regularMarketPrice || 0,
+                    change: parseFloat((item.regularMarketChangePercent || 0).toFixed(2)),
+                };
+            }
+            return {
+                nikkei: map['^N225'],
+                topix:  map['1306.T'],
+                growth: map['2516.T'],
+                usdjpy: map['JPY=X'],
+            };
         }
 
         // リアルタイム株価 + 市場指数を一括更新
@@ -1888,59 +1956,43 @@
             btn.textContent = '📡 取得中...';
             btn.disabled = true;
 
-            const online = await checkServerStatus();
-            setServerUI(online);
-
-            if (!online) {
-                btn.textContent = '❌ サーバー未起動';
-                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
-                return;
-            }
-
             try {
-                // 市場指数と株価を並列取得
-                const [marketRes, stockRes] = await Promise.all([
-                    fetch(`${API_BASE}/market`),
-                    fetch(`${API_BASE}/stocks`),
+                const [marketData, newSectors] = await Promise.all([
+                    fetchMarketFromYahoo(),
+                    buildSectorDataFromYahoo(),
                 ]);
-                const marketJson = await marketRes.json();
-                const stockJson  = await stockRes.json();
 
-                // 市場指数を反映
-                if (marketJson.status === 'ok') {
-                    applyMarketData(marketJson.data);
+                if (Object.values(marketData).some(v => v)) {
+                    applyMarketData(marketData);
+                    setServerUI(true);
+                } else {
+                    setServerUI(false);
                 }
 
-                // セクター株価を反映
-                if (stockJson.status === 'ok') {
-                    const sectorData = stockJson.data;
-                    SECTORS = Object.entries(sectorData).map(([name, d]) => ({
-                        name: name,
-                        value: d.value,
-                        stocks: d.stocks,
-                    }));
+                if (newSectors.length > 0) {
+                    SECTORS = newSectors;
                     createSectors();
                     updateNikkeiAverage();
                 }
 
-                const now = new Date().toLocaleTimeString('ja-JP');
-                document.getElementById('last-updated').textContent = `最終更新: ${now}`;
+                document.getElementById('last-updated').textContent =
+                    `最終更新: ${new Date().toLocaleTimeString('ja-JP')}`;
 
                 btn.textContent = '✅ 更新完了';
                 setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
 
             } catch (e) {
                 console.error('リアルタイム更新エラー:', e);
-                btn.textContent = '❌ エラー';
-                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
+                setServerUI(false);
+                btn.textContent = '❌ 取得失敗';
+                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 3000);
             }
         }
 
-        // 市場指数をUIに反映
+        // 市場指数を UI に反映
         function applyMarketData(data) {
             if (data.nikkei) {
-                const p = data.nikkei.price;
-                const c = data.nikkei.change;
+                const p = data.nikkei.price, c = data.nikkei.change;
                 document.getElementById('nikkei-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
                 const changeEl = document.getElementById('nikkei-change');
                 changeEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
@@ -1952,23 +2004,23 @@
                 document.getElementById('center-circle').className = `center-circle${c < 0 ? ' negative-market' : ''}`;
             }
             if (data.topix) {
+                const c = data.topix.change;
                 document.getElementById('topix-price').textContent = data.topix.price.toFixed(0);
                 const tc = document.getElementById('topix-change');
-                const c = data.topix.change;
                 tc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
                 tc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
             }
             if (data.growth) {
+                const c = data.growth.change;
                 document.getElementById('growth-price').textContent = data.growth.price.toFixed(0);
                 const gc = document.getElementById('growth-change');
-                const c = data.growth.change;
                 gc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
                 gc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
             }
             if (data.usdjpy) {
+                const c = data.usdjpy.change;
                 document.getElementById('usdjpy-price').textContent = `¥${data.usdjpy.price.toFixed(2)}`;
                 const uc = document.getElementById('usdjpy-change');
-                const c = data.usdjpy.change;
                 uc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
                 uc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
             }
@@ -1993,37 +2045,40 @@
             ];
 
             let newsWithSectors;
-            const online = await checkServerStatus();
-            setServerUI(online);
+            let fetchedReal = false;
 
-            if (online) {
-                try {
-                    const res = await fetch(`${API_BASE}/news`);
-                    const json = await res.json();
+            // RSS2JSON 経由で NHK 経済ニュースを取得（CORS 対応・無料）
+            try {
+                const feedUrl = encodeURIComponent('https://www.nhk.or.jp/rss/news/cat6.xml');
+                const res  = await fetch(
+                    `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`,
+                    { signal: AbortSignal.timeout(6000) }
+                );
+                const json = await res.json();
 
-                    if (json.status === 'ok' && json.data.length > 0) {
-                        newsWithSectors = json.data.map(item => {
-                            // 投稿時刻を相対表示に変換
-                            let timeStr = '';
-                            if (item.time) {
-                                try {
-                                    const d = new Date(item.time);
-                                    const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
-                                    if (diffMin < 60)        timeStr = `${diffMin}分前`;
-                                    else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
-                                    else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
-                                } catch { timeStr = item.time; }
-                            }
-                            const sectors = matchNewsToSectors(item.title, item.content);
-                            return { title: item.title, content: item.content, change: '', time: timeStr, link: item.link, source: item.source, sectors };
-                        });
-                    }
-                } catch (e) {
-                    console.error('ニュースAPI エラー:', e);
+                if (json.status === 'ok' && json.items?.length > 0) {
+                    fetchedReal = true;
+                    newsWithSectors = json.items.map(item => {
+                        // 投稿時刻を相対表示に変換
+                        let timeStr = '';
+                        if (item.pubDate) {
+                            try {
+                                const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
+                                if (diffMin < 60)        timeStr = `${diffMin}分前`;
+                                else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
+                                else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
+                            } catch { timeStr = item.pubDate; }
+                        }
+                        const content = item.description?.replace(/<[^>]+>/g, '').slice(0, 150) || '';
+                        const sectors = matchNewsToSectors(item.title, content);
+                        return { title: item.title, content, change: '', time: timeStr, link: item.link, source: 'NHK', sectors };
+                    });
                 }
+            } catch (e) {
+                console.warn('RSS2JSON エラー:', e);
             }
 
-            // API 未接続またはデータなし → デモデータ
+            // 取得失敗 → デモデータにフォールバック
             if (!newsWithSectors) {
                 newsWithSectors = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
             }
@@ -2031,8 +2086,7 @@
             NEWS = newsWithSectors;
             createNews();
 
-            const label = online ? '✅ リアルニュース取得完了' : '✅ デモデータ表示';
-            button.textContent = label;
+            button.textContent = fetchedReal ? '✅ NHKニュース取得完了' : '✅ デモデータ表示';
             setTimeout(() => {
                 button.textContent = '🔄 ニュース取得';
                 button.disabled = false;
@@ -2489,8 +2543,8 @@
         initTimeline();
         updateNikkeiAverage();
 
-        // 起動時にサーバー接続を確認
-        checkServerStatus().then(online => setServerUI(online));
+        // 起動時に Yahoo Finance 疎通テスト
+        checkYahooFinance().then(online => setServerUI(online));
         
         // 中心円ホバー
         document.getElementById('center-circle').addEventListener('mouseenter', (e) => {
