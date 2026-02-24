@@ -1964,6 +1964,41 @@
             return results;
         }
 
+        // ─── v8 chart API（1 銘柄ずつ・バッチ問題を完全回避）
+        async function fetchChartOne(ticker, range, interval) {
+            try {
+                const url  = PROXY + encodeURIComponent(
+                    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`
+                );
+                const res  = await fetch(url);
+                const json = await res.json();
+                const result = json.chart?.result?.[0];
+                if (!result) return null;
+                const closes = (result.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+                if (closes.length < 2) return null;
+                const first = closes[0];
+                const last  = closes[closes.length - 1];
+                return {
+                    change: parseFloat(((last - first) / first * 100).toFixed(2)),
+                    price:  extractNum(result.meta?.regularMarketPrice) || last,
+                };
+            } catch { return null; }
+        }
+
+        // 複数銘柄を CHART_CONC 本ずつ並列取得（全銘柄に安定してデータが返る）
+        const CHART_CONC = 6;
+        async function fetchPeriodChanges(tickers, range, interval) {
+            const results = {};
+            for (let i = 0; i < tickers.length; i += CHART_CONC) {
+                const batch = tickers.slice(i, i + CHART_CONC);
+                const vals  = await Promise.all(batch.map(t => fetchChartOne(t, range, interval)));
+                batch.forEach((ticker, idx) => {
+                    if (vals[idx] !== null) results[ticker.replace('.T', '')] = vals[idx];
+                });
+            }
+            return results;
+        }
+
         // 全セクターデータを Yahoo Finance から構築（期間対応）
         async function buildSectorDataFromYahoo(period = '1m') {
             const allCodes = new Set();
@@ -1974,8 +2009,8 @@
             // ─── Step1: quote API で全銘柄の現在価格・当日変化率を取得（最も信頼性が高い）
             const quoteMap = await fetchYahooBatch([...allCodes]);
 
-            // ─── Step2: 1d 以外は各セクター代表銘柄（時価総額最大 1 銘柄）のみ Spark API で期間変化率を取得
-            //           代表銘柄は最大 34 銘柄 → 2 バッチ程度で完了し、レート制限を回避しやすい
+            // ─── Step2: 1d 以外は各セクター代表銘柄（時価総額最大 1 銘柄）を
+            //           Chart v8 API で並列取得（Spark のバッチ問題を回避）
             const sparkMap = {};
             if (period !== '1d') {
                 const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
@@ -1989,7 +2024,7 @@
                         repCodes.push(`${rep.code}.T`);
                     }
                 }
-                Object.assign(sparkMap, await fetchSparkBatch(repCodes, range, interval));
+                Object.assign(sparkMap, await fetchPeriodChanges(repCodes, range, interval));
             }
 
             return Object.keys(SECTOR_ROTATION_POS).map(sectorName => {
@@ -2039,27 +2074,16 @@
                 }
                 return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
             } else {
-                // その他の期間は Spark API
+                // その他の期間は Chart v8 API で並列取得（Spark より安定）
                 const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
-                const url  = PROXY + encodeURIComponent(
-                    `${YF_SPARK_URL}?symbols=${idxSymbols.join(',')}&range=${range}&interval=${interval}`
-                );
-                const res  = await fetch(url);
-                const json = await res.json();
-                const map  = {};
-                for (const item of (json.spark?.result || [])) {
-                    const resp   = item.response?.[0];
-                    if (!resp) continue;
-                    const closes = (resp.indicators?.quote?.[0]?.close || []).filter(v => v != null);
-                    if (closes.length < 2) continue;
-                    const first  = closes[0];
-                    const last   = closes[closes.length - 1];
-                    map[item.symbol] = {
-                        price:  extractNum(resp.meta?.regularMarketPrice) || last,
-                        change: parseFloat(((last - first) / first * 100).toFixed(2)),
-                    };
-                }
-                return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
+                const changes = await fetchPeriodChanges(idxSymbols, range, interval);
+                // idxSymbols の .T を除いたキーで引く（^N225, JPY=X はそのまま）
+                return {
+                    nikkei: changes['^N225'],
+                    topix:  changes['1306'],
+                    growth: changes['2516'],
+                    usdjpy: changes['JPY=X'],
+                };
             }
         }
 
