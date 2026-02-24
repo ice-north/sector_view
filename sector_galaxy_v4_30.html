@@ -1971,31 +1971,52 @@
                 for (const c of companies) allCodes.add(`${c.code}.T`);
             }
 
-            let quoteMap;
-            if (period === '1d') {
-                // 当日変化率は quote API から（regularMarketChangePercent が最も正確）
-                quoteMap = await fetchYahooBatch([...allCodes]);
-            } else {
-                // その他の期間は Spark API（始値→終値の変化率を計算）
+            // ─── Step1: quote API で全銘柄の現在価格・当日変化率を取得（最も信頼性が高い）
+            const quoteMap = await fetchYahooBatch([...allCodes]);
+
+            // ─── Step2: 1d 以外は各セクター代表銘柄（時価総額最大 1 銘柄）のみ Spark API で期間変化率を取得
+            //           代表銘柄は最大 34 銘柄 → 2 バッチ程度で完了し、レート制限を回避しやすい
+            const sparkMap = {};
+            if (period !== '1d') {
                 const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
-                quoteMap = await fetchSparkBatch([...allCodes], range, interval);
-                // Spark が空なら quote にフォールバック
-                if (Object.keys(quoteMap).length === 0) {
-                    quoteMap = await fetchYahooBatch([...allCodes]);
+                const seen     = new Set();
+                const repCodes = [];
+                for (const companies of Object.values(COMPANY_DATABASE)) {
+                    if (!companies.length) continue;
+                    const rep = companies.reduce((a, b) => (a.cap > b.cap ? a : b));
+                    if (!seen.has(rep.code)) {
+                        seen.add(rep.code);
+                        repCodes.push(`${rep.code}.T`);
+                    }
                 }
+                Object.assign(sparkMap, await fetchSparkBatch(repCodes, range, interval));
             }
 
             return Object.keys(SECTOR_ROTATION_POS).map(sectorName => {
                 const companies = COMPANY_DATABASE[sectorName] || [];
+
+                // 個別株: 現在価格と当日変化率は quote API から（確実に取れる）
                 const stocks = companies.map(c => ({
                     ...c,
                     change: (quoteMap[c.code]?.change ?? 0),
                     price:  (quoteMap[c.code]?.price  ?? 0),
                 }));
                 const totalCap = stocks.reduce((s, c) => s + c.cap, 0);
-                const value    = totalCap > 0
-                    ? parseFloat((stocks.reduce((s, c) => s + c.change * c.cap, 0) / totalCap).toFixed(2))
-                    : 0;
+
+                // セクター集計変化率: Spark（期間）優先、失敗時は当日加重平均にフォールバック
+                let value;
+                if (period !== '1d') {
+                    const rep      = companies.length ? companies.reduce((a, b) => (a.cap > b.cap ? a : b)) : null;
+                    const sparkVal = rep ? sparkMap[rep.code] : undefined;
+                    value = sparkVal !== undefined
+                        ? sparkVal.change
+                        : (totalCap > 0 ? parseFloat((stocks.reduce((s, c) => s + c.change * c.cap, 0) / totalCap).toFixed(2)) : 0);
+                } else {
+                    value = totalCap > 0
+                        ? parseFloat((stocks.reduce((s, c) => s + c.change * c.cap, 0) / totalCap).toFixed(2))
+                        : 0;
+                }
+
                 return { name: sectorName, value, stocks };
             });
         }
@@ -2144,41 +2165,54 @@
             let fetchedReal = false;
 
             try {
-                // RSS2JSON 経由で NHK 経済ニュースを取得（CORS 対応・無料）
-                try {
-                    const feedUrl = encodeURIComponent('https://www.nhk.or.jp/rss/news/cat6.xml');
-                    // タイムアウトは Promise.race で実装（AbortSignal.timeout が使えない環境対応）
-                    const fetchPromise = fetch(
-                        `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`
-                    );
-                    const timeoutPromise = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('timeout')), 8000)
-                    );
-                    const res  = await Promise.race([fetchPromise, timeoutPromise]);
-                    const json = await res.json();
+                // rss2json.com 経由で RSS ニュースを取得（複数フィードを順に試みる）
+                const rssFeeds = [
+                    { url: 'https://feeds.reuters.com/reuters/JPbusiness', source: 'Reuters' },
+                    { url: 'https://www.nhk.or.jp/rss/news/cat6.xml',      source: 'NHK'     },
+                ];
 
-                    if (json.status === 'ok' && json.items?.length > 0) {
-                        fetchedReal = true;
-                        newsWithSectors = json.items.map(item => {
-                            let timeStr = '';
-                            if (item.pubDate) {
-                                try {
-                                    const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
-                                    if (diffMin < 60)        timeStr = `${diffMin}分前`;
-                                    else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
-                                    else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
-                                } catch { timeStr = item.pubDate; }
-                            }
-                            const content = item.description?.replace(/<[^>]+>/g, '').slice(0, 150) || '';
-                            const sectors = matchNewsToSectors(item.title, content);
-                            return { title: item.title, content, change: '', time: timeStr, link: item.link, source: 'NHK', sectors };
-                        });
+                for (const feed of rssFeeds) {
+                    if (fetchedReal) break;
+                    try {
+                        const feedUrl = encodeURIComponent(feed.url);
+                        const fetchPromise = fetch(
+                            `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`
+                        );
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('timeout')), 7000)
+                        );
+                        const res  = await Promise.race([fetchPromise, timeoutPromise]);
+                        const json = await res.json();
+
+                        // items が存在し、かつ title が正しく取得できているもののみ採用
+                        const validItems = (json.items || []).filter(
+                            item => item.title && typeof item.title === 'string' && item.title !== 'undefined'
+                        );
+                        if (json.status === 'ok' && validItems.length > 0) {
+                            fetchedReal = true;
+                            newsWithSectors = validItems.map(item => {
+                                let timeStr = '';
+                                if (item.pubDate) {
+                                    try {
+                                        const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
+                                        if (diffMin < 60)        timeStr = `${diffMin}分前`;
+                                        else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
+                                        else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
+                                    } catch { timeStr = ''; }
+                                }
+                                const rawContent = item.description || item.content || item.summary || '';
+                                const content = rawContent.replace(/<[^>]+>/g, '').slice(0, 150);
+                                const sectors = matchNewsToSectors(item.title, content);
+                                return { title: item.title, content, change: '', time: timeStr,
+                                         link: item.link || '', source: feed.source, sectors };
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`RSS フィード ${feed.source} 失敗:`, e);
                     }
-                } catch (e) {
-                    console.warn('RSS2JSON エラー（フォールバックへ）:', e);
                 }
 
-                // 取得失敗 → デモデータにフォールバック
+                // 全フィード失敗 → デモデータにフォールバック
                 if (!newsWithSectors) {
                     newsWithSectors = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
                 }
@@ -2186,7 +2220,7 @@
                 NEWS = newsWithSectors;
                 createNews();
 
-                button.textContent = fetchedReal ? '✅ NHKニュース取得完了' : '✅ デモデータ表示';
+                button.textContent = fetchedReal ? `✅ ニュース取得完了` : '✅ デモデータ表示';
                 setTimeout(() => {
                     button.textContent = '🔄 ニュース取得';
                     button.disabled = false;
