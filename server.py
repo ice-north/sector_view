@@ -9,12 +9,14 @@ import time
 import threading
 from datetime import datetime
 
-from flask import Flask, jsonify
+import os
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 import yfinance as yf
 import feedparser
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__, static_folder=BASE_DIR)
 CORS(app)
 
 # =============================================================================
@@ -442,6 +444,11 @@ def fetch_rss_news() -> list:
 # =============================================================================
 # API エンドポイント
 # =============================================================================
+@app.route("/")
+def index():
+    return send_from_directory(BASE_DIR, "sector_galaxy_v4_30.html")
+
+
 @app.route("/api/status")
 def api_status():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})

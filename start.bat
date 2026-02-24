@@ -20,9 +20,12 @@ pip install -r requirements.txt -q
 
 echo.
 echo サーバーを起動します: http://localhost:5000
-echo ブラウザで sector_galaxy_v4_30.html を開いてください。
+echo ブラウザが自動的に開きます。
 echo 終了するには Ctrl+C を押してください。
 echo.
+
+:: ブラウザを自動で開く（3秒待ってから）
+start /b cmd /c "timeout /t 3 > nul && start http://localhost:5000"
 
 python server.py
 pause
