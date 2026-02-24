@@ -1852,14 +1852,36 @@
         // ============================================================
         // Yahoo Finance (CORSプロキシ経由 – サーバー不要、HTMLを直接開くだけでOK)
         // ============================================================
-        const YF_URL  = 'https://query1.finance.yahoo.com/v7/finance/quote';
-        const PROXY   = 'https://corsproxy.io/?url=';
-        const YF_BATCH = 25;
+        const YF_URL       = 'https://query1.finance.yahoo.com/v7/finance/quote';
+        const YF_SPARK_URL = 'https://query1.finance.yahoo.com/v7/finance/spark';
+        const PROXY        = 'https://corsproxy.io/?url=';
+        const YF_BATCH     = 25;
+
+        // 期間 → Yahoo Finance range / interval マッピング
+        const PERIOD_MAP = {
+            '1d':  { range: '1d',  interval: '5m'  },
+            '1w':  { range: '5d',  interval: '1d'  },
+            '1m':  { range: '1mo', interval: '1d'  },
+            '3m':  { range: '3mo', interval: '1d'  },
+            '6m':  { range: '6mo', interval: '1wk' },
+            '1y':  { range: '1y',  interval: '1wk' },
+            '3y':  { range: '3y',  interval: '1mo' },
+            '5y':  { range: '5y',  interval: '1mo' },
+            '10y': { range: '10y', interval: '3mo' },
+            'max': { range: 'max', interval: '3mo' },
+        };
+
+        // Yahoo Finance は flat数値 または {raw, fmt} オブジェクトの両方を返す場合がある
+        function extractNum(val) {
+            if (typeof val === 'number') return val;
+            if (val && typeof val === 'object' && 'raw' in val) return val.raw;
+            return 0;
+        }
 
         // 疎通テスト
         async function checkYahooFinance() {
             try {
-                const url = PROXY + encodeURIComponent(`${YF_URL}?symbols=%5EN225`);
+                const url = PROXY + encodeURIComponent(`${YF_URL}?symbols=^N225`);
                 const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
                 const json = await res.json();
                 return !!(json.quoteResponse?.result?.length);
@@ -1898,8 +1920,8 @@
                     for (const item of (json.quoteResponse?.result || [])) {
                         const code = item.symbol.replace('.T', '');
                         results[code] = {
-                            change: parseFloat((item.regularMarketChangePercent || 0).toFixed(2)),
-                            price:  item.regularMarketPrice || 0,
+                            change: parseFloat(extractNum(item.regularMarketChangePercent).toFixed(2)),
+                            price:  extractNum(item.regularMarketPrice),
                         };
                     }
                 } catch (e) {
@@ -1909,13 +1931,59 @@
             return results;
         }
 
-        // 全セクターデータを Yahoo Finance から構築
-        async function buildSectorDataFromYahoo() {
+        // Spark API（バッチ対応・任意期間の始値→終値変化率を計算）
+        async function fetchSparkBatch(tickers, range, interval) {
+            const results = {};
+            for (let i = 0; i < tickers.length; i += YF_BATCH) {
+                const batch   = tickers.slice(i, i + YF_BATCH);
+                const symbols = batch.join(',');
+                try {
+                    const url  = PROXY + encodeURIComponent(
+                        `${YF_SPARK_URL}?symbols=${symbols}&range=${range}&interval=${interval}`
+                    );
+                    const res  = await fetch(url);
+                    const json = await res.json();
+                    for (const item of (json.spark?.result || [])) {
+                        const resp   = item.response?.[0];
+                        if (!resp) continue;
+                        const closes = (resp.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+                        if (closes.length < 2) continue;
+                        const first  = closes[0];
+                        const last   = closes[closes.length - 1];
+                        const change = parseFloat(((last - first) / first * 100).toFixed(2));
+                        const code   = item.symbol.replace('.T', '');
+                        results[code] = {
+                            change,
+                            price: extractNum(resp.meta?.regularMarketPrice) || last,
+                        };
+                    }
+                } catch (e) {
+                    console.warn('Spark バッチエラー:', e);
+                }
+            }
+            return results;
+        }
+
+        // 全セクターデータを Yahoo Finance から構築（期間対応）
+        async function buildSectorDataFromYahoo(period = '1m') {
             const allCodes = new Set();
             for (const companies of Object.values(COMPANY_DATABASE)) {
                 for (const c of companies) allCodes.add(`${c.code}.T`);
             }
-            const quoteMap = await fetchYahooBatch([...allCodes]);
+
+            let quoteMap;
+            if (period === '1d') {
+                // 当日変化率は quote API から（regularMarketChangePercent が最も正確）
+                quoteMap = await fetchYahooBatch([...allCodes]);
+            } else {
+                // その他の期間は Spark API（始値→終値の変化率を計算）
+                const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
+                quoteMap = await fetchSparkBatch([...allCodes], range, interval);
+                // Spark が空なら quote にフォールバック
+                if (Object.keys(quoteMap).length === 0) {
+                    quoteMap = await fetchYahooBatch([...allCodes]);
+                }
+            }
 
             return Object.keys(SECTOR_ROTATION_POS).map(sectorName => {
                 const companies = COMPANY_DATABASE[sectorName] || [];
@@ -1932,25 +2000,46 @@
             });
         }
 
-        // 市場指数を Yahoo Finance から取得
-        async function fetchMarketFromYahoo() {
-            const symbols = '^N225,1306.T,2516.T,JPY=X';               // ← 未エンコードで渡す
-            const url  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${symbols}`);
-            const res  = await fetch(url);
-            const json = await res.json();
-            const map  = {};
-            for (const item of (json.quoteResponse?.result || [])) {
-                map[item.symbol] = {
-                    price:  item.regularMarketPrice || 0,
-                    change: parseFloat((item.regularMarketChangePercent || 0).toFixed(2)),
-                };
+        // 市場指数を Yahoo Finance から取得（期間対応）
+        async function fetchMarketFromYahoo(period = '1m') {
+            const idxSymbols = ['^N225', '1306.T', '2516.T', 'JPY=X'];
+
+            if (period === '1d') {
+                // 当日は quote API（正式な前日比）
+                const url  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${idxSymbols.join(',')}`);
+                const res  = await fetch(url);
+                const json = await res.json();
+                const map  = {};
+                for (const item of (json.quoteResponse?.result || [])) {
+                    map[item.symbol] = {
+                        price:  extractNum(item.regularMarketPrice),
+                        change: parseFloat(extractNum(item.regularMarketChangePercent).toFixed(2)),
+                    };
+                }
+                return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
+            } else {
+                // その他の期間は Spark API
+                const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
+                const url  = PROXY + encodeURIComponent(
+                    `${YF_SPARK_URL}?symbols=${idxSymbols.join(',')}&range=${range}&interval=${interval}`
+                );
+                const res  = await fetch(url);
+                const json = await res.json();
+                const map  = {};
+                for (const item of (json.spark?.result || [])) {
+                    const resp   = item.response?.[0];
+                    if (!resp) continue;
+                    const closes = (resp.indicators?.quote?.[0]?.close || []).filter(v => v != null);
+                    if (closes.length < 2) continue;
+                    const first  = closes[0];
+                    const last   = closes[closes.length - 1];
+                    map[item.symbol] = {
+                        price:  extractNum(resp.meta?.regularMarketPrice) || last,
+                        change: parseFloat(((last - first) / first * 100).toFixed(2)),
+                    };
+                }
+                return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
             }
-            return {
-                nikkei: map['^N225'],
-                topix:  map['1306.T'],
-                growth: map['2516.T'],
-                usdjpy: map['JPY=X'],
-            };
         }
 
         // リアルタイム株価 + 市場指数を一括更新
@@ -1961,8 +2050,8 @@
 
             try {
                 const [marketData, newSectors] = await Promise.all([
-                    fetchMarketFromYahoo(),
-                    buildSectorDataFromYahoo(),
+                    fetchMarketFromYahoo(currentPeriod),
+                    buildSectorDataFromYahoo(currentPeriod),
                 ]);
 
                 const gotMarketData = Object.values(marketData).some(v => v);
@@ -2040,8 +2129,8 @@
             const button = (evt && evt.target) ? evt.target : document.getElementById('news-btn');
             button.textContent = '🔄 取得中...';
             button.disabled = true;
-            
-            // デモフォールバック用データ
+
+            // デモフォールバック用データ（最上位スコープに置くことで finally でも参照可能）
             const demoNews = [
                 { title: "トヨタ、新型EVを2025年発売へ",       content: "トヨタ自動車は次世代電気自動車の開発を加速。バッテリー技術の革新により航続距離を大幅に延長。", change: "+2.5%", time: "10分前",  link: "" },
                 { title: "日銀、金利政策を据え置き",             content: "日本銀行は金融政策決定会合で政策金利の据え置きを決定。三菱UFJ、三井住友などメガバンクの株価に影響。", change: "-0.8%", time: "25分前",  link: "" },
@@ -2054,49 +2143,66 @@
             let newsWithSectors;
             let fetchedReal = false;
 
-            // RSS2JSON 経由で NHK 経済ニュースを取得（CORS 対応・無料）
             try {
-                const feedUrl = encodeURIComponent('https://www.nhk.or.jp/rss/news/cat6.xml');
-                const res  = await fetch(
-                    `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`,
-                    { signal: AbortSignal.timeout(8000) }
-                );
-                const json = await res.json();
+                // RSS2JSON 経由で NHK 経済ニュースを取得（CORS 対応・無料）
+                try {
+                    const feedUrl = encodeURIComponent('https://www.nhk.or.jp/rss/news/cat6.xml');
+                    // タイムアウトは Promise.race で実装（AbortSignal.timeout が使えない環境対応）
+                    const fetchPromise = fetch(
+                        `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`
+                    );
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('timeout')), 8000)
+                    );
+                    const res  = await Promise.race([fetchPromise, timeoutPromise]);
+                    const json = await res.json();
 
-                if (json.status === 'ok' && json.items?.length > 0) {
-                    fetchedReal = true;
-                    newsWithSectors = json.items.map(item => {
-                        let timeStr = '';
-                        if (item.pubDate) {
-                            try {
-                                const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
-                                if (diffMin < 60)        timeStr = `${diffMin}分前`;
-                                else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
-                                else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
-                            } catch { timeStr = item.pubDate; }
-                        }
-                        const content = item.description?.replace(/<[^>]+>/g, '').slice(0, 150) || '';
-                        const sectors = matchNewsToSectors(item.title, content);
-                        return { title: item.title, content, change: '', time: timeStr, link: item.link, source: 'NHK', sectors };
-                    });
+                    if (json.status === 'ok' && json.items?.length > 0) {
+                        fetchedReal = true;
+                        newsWithSectors = json.items.map(item => {
+                            let timeStr = '';
+                            if (item.pubDate) {
+                                try {
+                                    const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
+                                    if (diffMin < 60)        timeStr = `${diffMin}分前`;
+                                    else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
+                                    else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
+                                } catch { timeStr = item.pubDate; }
+                            }
+                            const content = item.description?.replace(/<[^>]+>/g, '').slice(0, 150) || '';
+                            const sectors = matchNewsToSectors(item.title, content);
+                            return { title: item.title, content, change: '', time: timeStr, link: item.link, source: 'NHK', sectors };
+                        });
+                    }
+                } catch (e) {
+                    console.warn('RSS2JSON エラー（フォールバックへ）:', e);
                 }
+
+                // 取得失敗 → デモデータにフォールバック
+                if (!newsWithSectors) {
+                    newsWithSectors = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
+                }
+
+                NEWS = newsWithSectors;
+                createNews();
+
+                button.textContent = fetchedReal ? '✅ NHKニュース取得完了' : '✅ デモデータ表示';
+                setTimeout(() => {
+                    button.textContent = '🔄 ニュース取得';
+                    button.disabled = false;
+                }, 1500);
+
             } catch (e) {
-                console.warn('RSS2JSON エラー:', e);
+                // 予期しないエラーでもボタンを必ずリセット
+                console.error('ニュース取得エラー:', e);
+                NEWS = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
+                createNews();
+                button.textContent = '✅ デモデータ表示';
+                setTimeout(() => {
+                    button.textContent = '🔄 ニュース取得';
+                    button.disabled = false;
+                }, 1500);
             }
-
-            // 取得失敗 → デモデータにフォールバック
-            if (!newsWithSectors) {
-                newsWithSectors = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
-            }
-
-            NEWS = newsWithSectors;
-            createNews();
-
-            button.textContent = fetchedReal ? '✅ NHKニュース取得完了' : '✅ デモデータ表示';
-            setTimeout(() => {
-                button.textContent = '🔄 ニュース取得';
-                button.disabled = false;
-            }, 1500);
         }
 
         function createNews() {
@@ -2458,16 +2564,17 @@
             const timelineStart = document.getElementById('timeline-start');
             const timelineEnd = document.getElementById('timeline-end');
             
-            let currentPeriod = '1m';
+            // currentPeriod はグローバル変数（line 1258）を使用
             let currentMonth = new Date();
-            
+
             // 期間ボタン
             periodBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     periodBtns.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    currentPeriod = btn.dataset.period;
+                    currentPeriod = btn.dataset.period;  // グローバル変数を更新
                     updateTimelineDisplay();
+                    fetchRealTimeAll();  // 期間変更のたびにデータ再取得
                 });
             });
             
