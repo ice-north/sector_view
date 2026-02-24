@@ -1060,9 +1060,26 @@
 
         <div class="sidebar">
             <h2>📰 主要ニュース＆イベント</h2>
-            <button onclick="fetchNews()" style="width: 100%; padding: 8px; margin-bottom: 10px; background: linear-gradient(135deg, #00ff88, #00cc6a); color: #0a0a0a; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease;">
+
+            <!-- サーバー接続状態 -->
+            <div id="server-status" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:0.72rem;color:#666;padding:4px 6px;background:rgba(255,255,255,0.03);border-radius:4px;">
+                <div id="status-dot" style="width:8px;height:8px;border-radius:50%;background:#444;flex-shrink:0;transition:background 0.4s;"></div>
+                <span id="status-text">サーバー確認中...</span>
+            </div>
+
+            <!-- リアルタイム株価更新ボタン -->
+            <button id="realtime-btn" onclick="fetchRealTimeAll()" style="width:100%;padding:8px;margin-bottom:6px;background:linear-gradient(135deg,#0055ff,#0033cc);color:#fff;border:none;border-radius:6px;font-size:0.85rem;font-weight:700;cursor:pointer;transition:all 0.3s ease;">
+                📡 リアルタイム株価更新
+            </button>
+
+            <!-- ニュース取得ボタン -->
+            <button id="news-btn" onclick="fetchNews(event)" style="width: 100%; padding: 8px; margin-bottom: 6px; background: linear-gradient(135deg, #00ff88, #00cc6a); color: #0a0a0a; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease;">
                 🔄 ニュース取得
             </button>
+
+            <!-- 最終更新時刻 -->
+            <div id="last-updated" style="text-align:center;font-size:0.68rem;color:#444;margin-bottom:10px;min-height:14px;"></div>
+
             <div class="news-container" id="news-container"></div>
         </div>
 
@@ -1832,96 +1849,225 @@
             return matchedSectors;
         }
 
-        // ニュース取得関数（現在はデモ用のサンプルニュース生成）
-        async function fetchNews() {
-            const button = event.target;
+        // ============================================================
+        // リアルタイムAPI連携
+        // ============================================================
+        const API_BASE = 'http://localhost:5000/api';
+
+        // サーバー接続確認
+        async function checkServerStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/status`, { signal: AbortSignal.timeout(2000) });
+                const json = await res.json();
+                return json.status === 'ok';
+            } catch {
+                return false;
+            }
+        }
+
+        // 接続状態UIを更新
+        function setServerUI(online) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (online) {
+                dot.style.background = '#00ff88';
+                dot.style.boxShadow = '0 0 6px #00ff88';
+                text.textContent = 'サーバー接続中';
+                text.style.color = '#00ff88';
+            } else {
+                dot.style.background = '#ff4444';
+                dot.style.boxShadow = 'none';
+                text.textContent = 'サーバー未接続（デモモード）';
+                text.style.color = '#ff4444';
+            }
+        }
+
+        // リアルタイム株価 + 市場指数を一括更新
+        async function fetchRealTimeAll() {
+            const btn = document.getElementById('realtime-btn');
+            btn.textContent = '📡 取得中...';
+            btn.disabled = true;
+
+            const online = await checkServerStatus();
+            setServerUI(online);
+
+            if (!online) {
+                btn.textContent = '❌ サーバー未起動';
+                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
+                return;
+            }
+
+            try {
+                // 市場指数と株価を並列取得
+                const [marketRes, stockRes] = await Promise.all([
+                    fetch(`${API_BASE}/market`),
+                    fetch(`${API_BASE}/stocks`),
+                ]);
+                const marketJson = await marketRes.json();
+                const stockJson  = await stockRes.json();
+
+                // 市場指数を反映
+                if (marketJson.status === 'ok') {
+                    applyMarketData(marketJson.data);
+                }
+
+                // セクター株価を反映
+                if (stockJson.status === 'ok') {
+                    const sectorData = stockJson.data;
+                    SECTORS = Object.entries(sectorData).map(([name, d]) => ({
+                        name: name,
+                        value: d.value,
+                        stocks: d.stocks,
+                    }));
+                    createSectors();
+                    updateNikkeiAverage();
+                }
+
+                const now = new Date().toLocaleTimeString('ja-JP');
+                document.getElementById('last-updated').textContent = `最終更新: ${now}`;
+
+                btn.textContent = '✅ 更新完了';
+                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
+
+            } catch (e) {
+                console.error('リアルタイム更新エラー:', e);
+                btn.textContent = '❌ エラー';
+                setTimeout(() => { btn.textContent = '📡 リアルタイム株価更新'; btn.disabled = false; }, 2000);
+            }
+        }
+
+        // 市場指数をUIに反映
+        function applyMarketData(data) {
+            if (data.nikkei) {
+                const p = data.nikkei.price;
+                const c = data.nikkei.change;
+                document.getElementById('nikkei-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
+                const changeEl = document.getElementById('nikkei-change');
+                changeEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
+                changeEl.className = `center-value${c < 0 ? ' negative' : ''}`;
+                document.getElementById('nikkei-indicator-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
+                const ic = document.getElementById('nikkei-indicator-change');
+                ic.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
+                ic.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
+                document.getElementById('center-circle').className = `center-circle${c < 0 ? ' negative-market' : ''}`;
+            }
+            if (data.topix) {
+                document.getElementById('topix-price').textContent = data.topix.price.toFixed(0);
+                const tc = document.getElementById('topix-change');
+                const c = data.topix.change;
+                tc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
+                tc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
+            }
+            if (data.growth) {
+                document.getElementById('growth-price').textContent = data.growth.price.toFixed(0);
+                const gc = document.getElementById('growth-change');
+                const c = data.growth.change;
+                gc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
+                gc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
+            }
+            if (data.usdjpy) {
+                document.getElementById('usdjpy-price').textContent = `¥${data.usdjpy.price.toFixed(2)}`;
+                const uc = document.getElementById('usdjpy-change');
+                const c = data.usdjpy.change;
+                uc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
+                uc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
+            }
+        }
+
+        // ============================================================
+        // ニュース取得関数（APIあり→リアルニュース、なし→デモ）
+        // ============================================================
+        async function fetchNews(evt) {
+            const button = (evt && evt.target) ? evt.target : document.getElementById('news-btn');
             button.textContent = '🔄 取得中...';
             button.disabled = true;
             
-            // デモ用：実際のAPIに接続する場合はここを置き換え
+            // デモフォールバック用データ
             const demoNews = [
-                {
-                    title: "トヨタ、新型EVを2025年発売へ",
-                    content: "トヨタ自動車は次世代電気自動車の開発を加速。バッテリー技術の革新により航続距離を大幅に延長。",
-                    change: "+2.5%",
-                    time: "10分前"
-                },
-                {
-                    title: "日銀、金利政策を据え置き",
-                    content: "日本銀行は金融政策決定会合で政策金利の据え置きを決定。三菱UFJ、三井住友などメガバンクの株価に影響。",
-                    change: "-0.8%",
-                    time: "25分前"
-                },
-                {
-                    title: "ソニー、AI半導体に1兆円投資",
-                    content: "ソニーグループはAI向け半導体事業に1兆円を投資。次世代センサーとイメージング技術を強化。",
-                    change: "+3.2%",
-                    time: "1時間前"
-                },
-                {
-                    title: "NTT、6G研究開発を本格化",
-                    content: "NTTは次世代通信規格6Gの研究開発を加速。2030年の実用化を目指す。",
-                    change: "+1.5%",
-                    time: "2時間前"
-                },
-                {
-                    title: "武田薬品、新型抗がん剤の承認取得",
-                    content: "武田薬品工業は新しい抗がん剤の国内承認を取得。がん治療の新たな選択肢として期待。",
-                    change: "+2.1%",
-                    time: "3時間前"
-                },
-                {
-                    title: "JR東海、リニア開業延期の可能性",
-                    content: "JR東海はリニア中央新幹線の開業時期について、工事の遅れから延期の可能性を示唆。",
-                    change: "-1.3%",
-                    time: "4時間前"
-                }
+                { title: "トヨタ、新型EVを2025年発売へ",       content: "トヨタ自動車は次世代電気自動車の開発を加速。バッテリー技術の革新により航続距離を大幅に延長。", change: "+2.5%", time: "10分前",  link: "" },
+                { title: "日銀、金利政策を据え置き",             content: "日本銀行は金融政策決定会合で政策金利の据え置きを決定。三菱UFJ、三井住友などメガバンクの株価に影響。", change: "-0.8%", time: "25分前",  link: "" },
+                { title: "ソニー、AI半導体に1兆円投資",          content: "ソニーグループはAI向け半導体事業に1兆円を投資。次世代センサーとイメージング技術を強化。",             change: "+3.2%", time: "1時間前", link: "" },
+                { title: "NTT、6G研究開発を本格化",              content: "NTTは次世代通信規格6Gの研究開発を加速。2030年の実用化を目指す。",                                   change: "+1.5%", time: "2時間前", link: "" },
+                { title: "武田薬品、新型抗がん剤の承認取得",     content: "武田薬品工業は新しい抗がん剤の国内承認を取得。がん治療の新たな選択肢として期待。",                   change: "+2.1%", time: "3時間前", link: "" },
+                { title: "JR東海、リニア開業延期の可能性",       content: "JR東海はリニア中央新幹線の開業時期について、工事の遅れから延期の可能性を示唆。",                     change: "-1.3%", time: "4時間前", link: "" },
             ];
-            
-            // 各ニュースにセクターを紐付け
-            const newsWithSectors = demoNews.map(news => {
-                const sectors = matchNewsToSectors(news.title, news.content);
-                return { ...news, sectors };
-            });
-            
-            // グローバルNEWS変数を更新
+
+            let newsWithSectors;
+            const online = await checkServerStatus();
+            setServerUI(online);
+
+            if (online) {
+                try {
+                    const res = await fetch(`${API_BASE}/news`);
+                    const json = await res.json();
+
+                    if (json.status === 'ok' && json.data.length > 0) {
+                        newsWithSectors = json.data.map(item => {
+                            // 投稿時刻を相対表示に変換
+                            let timeStr = '';
+                            if (item.time) {
+                                try {
+                                    const d = new Date(item.time);
+                                    const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+                                    if (diffMin < 60)        timeStr = `${diffMin}分前`;
+                                    else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
+                                    else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
+                                } catch { timeStr = item.time; }
+                            }
+                            const sectors = matchNewsToSectors(item.title, item.content);
+                            return { title: item.title, content: item.content, change: '', time: timeStr, link: item.link, source: item.source, sectors };
+                        });
+                    }
+                } catch (e) {
+                    console.error('ニュースAPI エラー:', e);
+                }
+            }
+
+            // API 未接続またはデータなし → デモデータ
+            if (!newsWithSectors) {
+                newsWithSectors = demoNews.map(n => ({ ...n, sectors: matchNewsToSectors(n.title, n.content) }));
+            }
+
             NEWS = newsWithSectors;
-            
-            // ニュース表示を更新
             createNews();
-            
-            // ボタンを元に戻す
+
+            const label = online ? '✅ リアルニュース取得完了' : '✅ デモデータ表示';
+            button.textContent = label;
             setTimeout(() => {
-                button.textContent = '✅ 取得完了';
-                setTimeout(() => {
-                    button.textContent = '🔄 ニュース取得';
-                    button.disabled = false;
-                }, 1000);
-            }, 500);
+                button.textContent = '🔄 ニュース取得';
+                button.disabled = false;
+            }, 1500);
         }
 
         function createNews() {
             const container = document.getElementById('news-container');
             container.innerHTML = '';
-            
+
             NEWS.forEach(news => {
+                const isNegative = typeof news.change === 'string' && news.change.startsWith('-');
                 const newsEl = document.createElement('div');
-                newsEl.className = `news-item ${news.change.startsWith('-') ? 'negative' : ''}`;
-                
+                newsEl.className = `news-item ${isNegative ? 'negative' : ''}`;
+
                 // セクター情報を表示（複数セクター対応）
-                const sectorsText = news.sectors && news.sectors.length > 0 
+                const sectorsText = news.sectors && news.sectors.length > 0
                     ? news.sectors.slice(0, 3).join(', ') + (news.sectors.length > 3 ? ' 他' : '')
                     : '全般';
-                
-                const icon = news.sectors && news.sectors.length > 0 
+
+                const icon = news.sectors && news.sectors.length > 0
                     ? SECTOR_ICONS[news.sectors[0]] || '📊'
                     : '📊';
-                
+
+                const changeLabel = news.change ? ` ${news.change}` : '';
+                const sourceLabel = news.source ? `<span style="color:#555;margin-left:6px;">${news.source}</span>` : '';
+                const titleHtml = news.link
+                    ? `<a href="${news.link}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">${news.title}</a>`
+                    : news.title;
+
                 newsEl.innerHTML = `
-                    <div class="news-title">${news.title}</div>
+                    <div class="news-title">${titleHtml}</div>
                     <div class="news-sector">
                         <span class="news-icon">${icon}</span>
-                        ${sectorsText} ${news.change}
+                        ${sectorsText}${changeLabel}${sourceLabel}
                     </div>
                     <div class="news-content">${news.content}</div>
                     <div class="news-time">${news.time}</div>
@@ -2342,6 +2488,9 @@
         createNews();
         initTimeline();
         updateNikkeiAverage();
+
+        // 起動時にサーバー接続を確認
+        checkServerStatus().then(online => setServerUI(online));
         
         // 中心円ホバー
         document.getElementById('center-circle').addEventListener('mouseenter', (e) => {
