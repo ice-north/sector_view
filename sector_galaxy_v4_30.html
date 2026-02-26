@@ -1857,18 +1857,26 @@
         const PROXY        = 'https://corsproxy.io/?url=';
         const YF_BATCH     = 25;
 
-        // 期間 → Yahoo Finance range / interval マッピング
+        // 期間 → interval（interval=1wk/3mo は一部銘柄でデータ欠損が生じるため廃止）
+        // 6m/1y も interval=1d で取得（データ点が増えるが確実に取得できる）
+        const PERIOD_INTERVAL = {
+            '1w': '1d', '1m': '1d', '3m': '1d', '6m': '1d', '1y': '1d',
+            '3y': '1mo', '5y': '1mo', '10y': '1mo', 'max': '1mo',
+        };
+        // 期間 → 秒数（period1/period2 タイムスタンプ方式：range= パラメータの方言差を回避）
+        const PERIOD_SECS = {
+            '1w':    5 * 86400,
+            '1m':   30 * 86400,
+            '3m':   90 * 86400,
+            '6m':  180 * 86400,
+            '1y':  365 * 86400,
+            '3y':  3 * 365 * 86400,
+            '5y':  5 * 365 * 86400,
+            '10y': 10 * 365 * 86400,
+        };
+        // 後方互換（1d 判定などで参照される箇所のみ残す）
         const PERIOD_MAP = {
-            '1d':  { range: '1d',  interval: '5m'  },
-            '1w':  { range: '5d',  interval: '1d'  },
-            '1m':  { range: '1mo', interval: '1d'  },
-            '3m':  { range: '3mo', interval: '1d'  },
-            '6m':  { range: '6mo', interval: '1wk' },
-            '1y':  { range: '1y',  interval: '1wk' },
-            '3y':  { range: '3y',  interval: '1mo' },
-            '5y':  { range: '5y',  interval: '1mo' },
-            '10y': { range: '10y', interval: '3mo' },
-            'max': { range: 'max', interval: '3mo' },
+            '1d': { range: '1d', interval: '5m' },
         };
 
         // Yahoo Finance は flat数値 または {raw, fmt} オブジェクトの両方を返す場合がある
@@ -1964,11 +1972,18 @@
             return results;
         }
 
-        // ─── v8 chart API（1 銘柄ずつ・バッチ問題を完全回避）
-        async function fetchChartOne(ticker, range, interval) {
+        // ─── v8 chart API（タイムスタンプ方式・interval=1wk 廃止で全銘柄対応）
+        async function fetchChartOne(ticker, period) {
             try {
+                const now      = Math.floor(Date.now() / 1000);
+                const secs     = PERIOD_SECS[period];
+                const interval = PERIOD_INTERVAL[period] || '1d';
+                // period1/period2 方式（range= の方言差を回避）
+                const query = secs
+                    ? `period1=${now - secs}&period2=${now}&interval=${interval}`
+                    : `range=max&interval=1mo`;
                 const url  = PROXY + encodeURIComponent(
-                    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`
+                    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?${query}`
                 );
                 const res  = await fetch(url);
                 const json = await res.json();
@@ -1985,13 +2000,25 @@
             } catch { return null; }
         }
 
-        // 複数銘柄を CHART_CONC 本ずつ並列取得（全銘柄に安定してデータが返る）
-        const CHART_CONC = 6;
-        async function fetchPeriodChanges(tickers, range, interval) {
+        // 期間変化率キャッシュ（5分 TTL）
+        const PCACHE     = {};
+        const PCACHE_TTL = 5 * 60 * 1000;
+
+        // 複数銘柄を CHART_CONC 本ずつ並列取得＋キャッシュ（レート制限対策）
+        const CHART_CONC = 4;
+        async function fetchPeriodChanges(tickers, period) {
             const results = {};
+            const ts      = Date.now();
             for (let i = 0; i < tickers.length; i += CHART_CONC) {
                 const batch = tickers.slice(i, i + CHART_CONC);
-                const vals  = await Promise.all(batch.map(t => fetchChartOne(t, range, interval)));
+                const vals  = await Promise.all(batch.map(async t => {
+                    const key    = `${t}|${period}`;
+                    const cached = PCACHE[key];
+                    if (cached && ts - cached.at < PCACHE_TTL) return cached.v;
+                    const v = await fetchChartOne(t, period);
+                    if (v) PCACHE[key] = { v, at: ts };
+                    return v;
+                }));
                 batch.forEach((ticker, idx) => {
                     if (vals[idx] !== null) results[ticker.replace('.T', '')] = vals[idx];
                 });
@@ -2006,14 +2033,21 @@
                 for (const c of companies) allCodes.add(`${c.code}.T`);
             }
 
-            // ─── Step1: quote API で全銘柄の現在価格・当日変化率を取得（最も信頼性が高い）
-            const quoteMap = await fetchYahooBatch([...allCodes]);
+            // ─── Step1: quote API で全銘柄の現在価格・当日変化率を取得（5分キャッシュ）
+            if (!buildSectorDataFromYahoo._qCache ||
+                Date.now() - buildSectorDataFromYahoo._qAt > 5 * 60 * 1000) {
+                const fresh = await fetchYahooBatch([...allCodes]);
+                if (Object.keys(fresh).length > 0) {
+                    buildSectorDataFromYahoo._qCache = fresh;
+                    buildSectorDataFromYahoo._qAt    = Date.now();
+                }
+            }
+            const quoteMap = buildSectorDataFromYahoo._qCache || {};
 
             // ─── Step2: 1d 以外は各セクター代表銘柄（時価総額最大 1 銘柄）を
-            //           Chart v8 API で並列取得（Spark のバッチ問題を回避）
+            //           Chart v8 API（タイムスタンプ方式）で並列取得＋キャッシュ
             const sparkMap = {};
             if (period !== '1d') {
-                const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
                 const seen     = new Set();
                 const repCodes = [];
                 for (const companies of Object.values(COMPANY_DATABASE)) {
@@ -2024,7 +2058,7 @@
                         repCodes.push(`${rep.code}.T`);
                     }
                 }
-                Object.assign(sparkMap, await fetchPeriodChanges(repCodes, range, interval));
+                Object.assign(sparkMap, await fetchPeriodChanges(repCodes, period));
             }
 
             return Object.keys(SECTOR_ROTATION_POS).map(sectorName => {
@@ -2074,10 +2108,8 @@
                 }
                 return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
             } else {
-                // その他の期間は Chart v8 API で並列取得（Spark より安定）
-                const { range, interval } = PERIOD_MAP[period] || PERIOD_MAP['1m'];
-                const changes = await fetchPeriodChanges(idxSymbols, range, interval);
-                // idxSymbols の .T を除いたキーで引く（^N225, JPY=X はそのまま）
+                // その他の期間は Chart v8 API（タイムスタンプ方式・キャッシュ付き）
+                const changes = await fetchPeriodChanges(idxSymbols, period);
                 return {
                     nikkei: changes['^N225'],
                     topix:  changes['1306'],
@@ -2189,48 +2221,50 @@
             let fetchedReal = false;
 
             try {
-                // rss2json.com 経由で RSS ニュースを取得（複数フィードを順に試みる）
+                // corsproxy.io + DOMParser で RSS を直接取得（rss2json.com の制限を回避）
                 const rssFeeds = [
-                    { url: 'https://feeds.reuters.com/reuters/JPbusiness', source: 'Reuters' },
-                    { url: 'https://www.nhk.or.jp/rss/news/cat6.xml',      source: 'NHK'     },
+                    { url: 'https://www3.nhk.or.jp/rss/news/cat6.xml', source: 'NHK経済' },
+                    { url: 'https://www3.nhk.or.jp/rss/news/cat1.xml', source: 'NHKニュース' },
+                    { url: 'https://feeds.reuters.com/reuters/businessNews', source: 'Reuters' },
                 ];
 
                 for (const feed of rssFeeds) {
                     if (fetchedReal) break;
                     try {
-                        const feedUrl = encodeURIComponent(feed.url);
-                        const fetchPromise = fetch(
-                            `https://api.rss2json.com/v1/api.json?rss_url=${feedUrl}&count=20`
-                        );
+                        const fetchPromise = fetch(PROXY + encodeURIComponent(feed.url));
                         const timeoutPromise = new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('timeout')), 7000)
+                            setTimeout(() => reject(new Error('timeout')), 8000)
                         );
                         const res  = await Promise.race([fetchPromise, timeoutPromise]);
-                        const json = await res.json();
+                        const text = await res.text();
 
-                        // items が存在し、かつ title が正しく取得できているもののみ採用
-                        const validItems = (json.items || []).filter(
-                            item => item.title && typeof item.title === 'string' && item.title !== 'undefined'
-                        );
-                        if (json.status === 'ok' && validItems.length > 0) {
-                            fetchedReal = true;
-                            newsWithSectors = validItems.map(item => {
-                                let timeStr = '';
-                                if (item.pubDate) {
-                                    try {
-                                        const diffMin = Math.floor((Date.now() - new Date(item.pubDate).getTime()) / 60000);
-                                        if (diffMin < 60)        timeStr = `${diffMin}分前`;
-                                        else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
-                                        else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
-                                    } catch { timeStr = ''; }
-                                }
-                                const rawContent = item.description || item.content || item.summary || '';
-                                const content = rawContent.replace(/<[^>]+>/g, '').slice(0, 150);
-                                const sectors = matchNewsToSectors(item.title, content);
-                                return { title: item.title, content, change: '', time: timeStr,
-                                         link: item.link || '', source: feed.source, sectors };
-                            });
-                        }
+                        // XML パース（ブラウザ標準の DOMParser を使用）
+                        const parser = new DOMParser();
+                        const doc    = parser.parseFromString(text, 'text/xml');
+                        if (doc.querySelector('parsererror')) continue;
+
+                        const items = [...doc.querySelectorAll('item')];
+                        if (!items.length) continue;
+
+                        fetchedReal = true;
+                        newsWithSectors = items.slice(0, 20).map(item => {
+                            const title   = item.querySelector('title')?.textContent?.trim() || '';
+                            const link    = item.querySelector('link')?.textContent?.trim()  || '';
+                            const pubDate = item.querySelector('pubDate')?.textContent?.trim() || '';
+                            const rawDesc = item.querySelector('description')?.textContent || '';
+                            const content = rawDesc.replace(/<[^>]+>/g, '').trim().slice(0, 150);
+                            let timeStr = '';
+                            if (pubDate) {
+                                try {
+                                    const diffMin = Math.floor((Date.now() - new Date(pubDate).getTime()) / 60000);
+                                    if (diffMin < 60)        timeStr = `${diffMin}分前`;
+                                    else if (diffMin < 1440) timeStr = `${Math.floor(diffMin / 60)}時間前`;
+                                    else                     timeStr = `${Math.floor(diffMin / 1440)}日前`;
+                                } catch { timeStr = ''; }
+                            }
+                            const sectors = matchNewsToSectors(title, content);
+                            return { title, content, change: '', time: timeStr, link, source: feed.source, sectors };
+                        }).filter(n => n.title);
                     } catch (e) {
                         console.warn(`RSS フィード ${feed.source} 失敗:`, e);
                     }
