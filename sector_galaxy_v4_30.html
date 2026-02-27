@@ -1248,7 +1248,8 @@
         .fin-table td:nth-child(3) { text-align: center; color: #999; }
         .fin-table td.group-sep { border-left: 2px solid #1e1e1e; }
         .fin-table tbody tr:hover { background: rgba(255,255,255,0.04); }
-        .fin-table tbody tr.fy-start td { border-top: 1px solid #2a2a2a; }
+        .fin-table tbody tr.fy-start td { border-top: 2px solid #2a4a2a; }
+        .fin-table tbody tr.q4-row td   { background: rgba(80,120,255,0.04); }
         .fin-table .num { font-variant-numeric: tabular-nums; }
         .fin-table .pos { color: #00cc6a; }
         .fin-table .neg { color: #cc3333; }
@@ -3232,17 +3233,25 @@
                 return v / unitDiv;  // 単位なし → ヘッダー由来の unitDiv で割る
             };
 
+            // 日付正規化: "2024年3月" / "2024/3" / "2024-03" → "2024/03"
+            const normDate = (d) => {
+                if (!d) return null;
+                const m1 = d.match(/(\d{4})年(\d{1,2})月/);
+                if (m1) return `${m1[1]}/${m1[2].padStart(2, '0')}`;
+                const m2 = d.match(/^(\d{4})\/(\d{1,2})/);
+                if (m2) return `${m2[1]}/${m2[2].padStart(2, '0')}`;
+                const m3 = d.match(/^(\d{4})-(\d{2})/);
+                if (m3) return `${m3[1]}/${m3[2]}`;
+                return d;
+            };
+
             // CF / BS を日付キーでインデックス化（列が見つからない場合はセル[0]フォールバック）
             const cfByDate = {}, bsByDate = {};
             const cfDateIdx = icDate >= 0 ? icDate : 0;
             const bsDateIdx = ibDate >= 0 ? ibDate : 0;
             for (const { cells, unitDiv } of cfData.rows) {
-                // 四半期列がある場合は「通期」行のみ使用（1Q/2Q/3Qを除外）
-                if (icQuarter >= 0) {
-                    const qt = cells[icQuarter]?.trim() || '';
-                    if (qt && qt !== '通期' && !/^(FY|年間|年度)$/.test(qt)) continue;
-                }
-                const d = cells[cfDateIdx]?.trim() || null;
+                // 四半期フィルターなし: 通期・1Q・2Q・3Q 全行を日付キーで保持
+                const d = normDate(cells[cfDateIdx]?.trim()) || null;
                 if (!d || d.length < 4) continue;
                 cfByDate[d] = {
                     opCF:  getNum(cells, icOpCF,  unitDiv),
@@ -3252,7 +3261,7 @@
                 };
             }
             for (const { cells, unitDiv } of bsData.rows) {
-                const d = cells[bsDateIdx]?.trim() || null;
+                const d = normDate(cells[bsDateIdx]?.trim()) || null;
                 if (!d || d.length < 4) continue;
                 // 自己資本比率を BS から直接取得（P&L にない場合のバックアップ）
                 const eqRatRaw = ibEqRat >= 0 ? parseFloat(cells[ibEqRat]) : NaN;
@@ -3269,9 +3278,9 @@
             const dateIdx = iDate >= 0 ? iDate : 0;
             const result = [];
             for (const { cells, unitDiv } of plData.rows) {
-                const d = cells[dateIdx]?.trim() || null;
-                // 日付として最低限の長さ（YYYY/MM = 7, YYYY-MM-DD = 10）があるか確認
-                if (!d || d.length < 4) continue;
+                const dRaw = cells[dateIdx]?.trim() || null;
+                if (!dRaw || dRaw.length < 4) continue;
+                const d = normDate(dRaw) || dRaw;  // 正規化した日付キーで CF/BS を検索
 
                 const rev    = getNum(cells, iRev,    unitDiv);
                 const opInc  = getNum(cells, iOpInc,  unitDiv);
@@ -3437,70 +3446,94 @@
                         </div>`;
                     }
 
-                    // 四半期単独値を計算（累積→単独：日本会計基準対応）
+                    // ── 期末月（決算月）を推定 ─────────────────────────
+                    // 新年度判定（累積値が前期より小さくなる）で Q4 行を特定し、その月を期末月とする
+                    let fyEndMonth = 3; // デフォルト: 3月
+                    for (let i = 1; i < rows.length; i++) {
+                        const r = rows[i], p = rows[i-1];
+                        if (r.rev !== null && p.rev !== null && r.rev < p.rev) {
+                            const m = parseInt(p.date.split('/')[1]);
+                            if (m >= 1 && m <= 12) { fyEndMonth = m; break; }
+                        }
+                    }
+                    const getQLabel = (date) => {
+                        const mo = parseInt(date.split('/')[1]);
+                        if (!mo) return '';
+                        const delta = (mo - fyEndMonth + 12) % 12;
+                        if (delta === 0) return 'Q4';
+                        if (delta === 3) return 'Q1';
+                        if (delta === 6) return 'Q2';
+                        if (delta === 9) return 'Q3';
+                        return '';
+                    };
+
+                    // ── 四半期単独値（累積→単独換算）──────────────────
                     // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
                     rows.forEach((r, i) => {
                         if (i === 0) {
                             r.qRev = r.rev; r.qOpInc = r.opInc; r.qNetInc = r.netInc;
+                            r.qOpCF = r.opCF; r.qInvCF = r.invCF; r.qFinCF = r.finCF;
                         } else {
                             const prev = rows[i - 1];
                             const isNewFY = (r.rev !== null && prev.rev !== null && r.rev < prev.rev);
-                            r.qRev    = isNewFY ? r.rev    : (r.rev    !== null && prev.rev    !== null ? r.rev    - prev.rev    : null);
-                            r.qOpInc  = isNewFY ? r.opInc  : (r.opInc  !== null && prev.opInc  !== null ? r.opInc  - prev.opInc  : null);
-                            r.qNetInc = isNewFY ? r.netInc : (r.netInc !== null && prev.netInc !== null ? r.netInc - prev.netInc : null);
+                            const d = (a, b) => (a !== null && b !== null) ? a - b : null;
+                            r.qRev    = isNewFY ? r.rev    : d(r.rev,    prev.rev);
+                            r.qOpInc  = isNewFY ? r.opInc  : d(r.opInc,  prev.opInc);
+                            r.qNetInc = isNewFY ? r.netInc : d(r.netInc, prev.netInc);
+                            r.qOpCF   = isNewFY ? r.opCF   : d(r.opCF,   prev.opCF);
+                            r.qInvCF  = isNewFY ? r.invCF  : d(r.invCF,  prev.invCF);
+                            r.qFinCF  = isNewFY ? r.finCF  : d(r.finCF,  prev.finCF);
                         }
                     });
 
                     // 表示は降順（新しい→古い）
                     rows.reverse();
 
-                    const m = (v, d=0) => {
-                        if (v === null || v === undefined || isNaN(v) || v === 0) return '<span class="dim">—</span>';
-                        const s = v < 0 ? 'neg' : '';
+                    const m = (v) => {
+                        if (v === null || v === undefined || isNaN(v)) return '<span class="dim">—</span>';
+                        const s = v < 0 ? 'neg' : (v > 0 ? '' : 'dim');
                         return `<span class="${s} num">${Math.round(v).toLocaleString()}</span>`;
                     };
-                    const pct = (v) => v !== null ? `<span class="dim">${v}%</span>` : '<span class="dim">—</span>';
-                    const shs = (v) => v ? v.toLocaleString() : '<span class="dim">—</span>';
+                    const pct = (v) => v !== null && !isNaN(v) ? `<span class="num">${typeof v === 'number' ? v.toFixed(1) : v}%</span>` : '<span class="dim">—</span>';
 
                     const tableRows = rows.map((r, i) => {
-                        const isFYStart = i > 0 && r.rev !== null && rows[i-1].rev !== null && rows[i-1].rev < r.rev;
-                        return `<tr class="${isFYStart ? 'fy-start' : ''}">
-                            <td>${r.date}</td>
-                            <td class="num">${m(r.rev)}</td>
-                            <td>${m(r.opInc)}</td>
-                            <td>${m(r.netInc)}</td>
-                            <td class="group-sep">${m(r.assets)}</td>
-                            <td>${m(r.equity)}</td>
-                            <td class="num">${pct(r.eqRatio)}</td>
-                            <td class="num">${shs(r.shares)}</td>
-                            <td class="group-sep">${m(r.opCF)}</td>
-                            <td>${m(r.invCF)}</td>
-                            <td>${m(r.finCF)}</td>
-                            <td>${m(r.cash)}</td>
+                        // FY 境界: 降順で前行（より新しい行）の累積 rev が現在行より小さい = 新FY開始直後
+                        const isFYBorder = i > 0 && r.rev !== null && rows[i-1].rev !== null && rows[i-1].rev < r.rev;
+                        const qLabel = getQLabel(r.date);
+                        const isQ4   = qLabel === 'Q4';
+                        const qCls   = isQ4 ? 'q4-row' : '';
+                        return `<tr class="${isFYBorder ? 'fy-start ' : ''}${qCls}">
+                            <td style="white-space:nowrap">${r.date}</td>
+                            <td style="color:${isQ4?'#88aaff':'#555'};font-size:0.8em;text-align:center;">${qLabel}</td>
                             <td class="group-sep">${m(r.qRev)}</td>
                             <td>${m(r.qOpInc)}</td>
                             <td>${m(r.qNetInc)}</td>
+                            <td class="group-sep">${m(r.qOpCF)}</td>
+                            <td>${m(r.qInvCF)}</td>
+                            <td>${m(r.qFinCF)}</td>
+                            <td>${m(r.cash)}</td>
+                            <td class="group-sep">${isQ4 ? m(r.assets)  : '<span class="dim">·</span>'}</td>
+                            <td>${isQ4 ? m(r.equity) : '<span class="dim">·</span>'}</td>
+                            <td>${isQ4 ? pct(r.eqRatio) : '<span class="dim">·</span>'}</td>
                         </tr>`;
                     }).join('');
 
                     return `
-                        <div class="ao-note">単位: 百万円 ／ 自己資本比率は純資産÷総資産で算出 ／ データソース: ${dataSource}</div>
+                        <div class="ao-note">単位: 百万円（四半期単独値） ／ CF・損益は累積から逆算 ／ BS は Q4 のみ ／ データ: ${dataSource}</div>
                         <div class="fin-table-wrap">
                           <table class="fin-table">
                             <thead>
                               <tr class="group-header">
-                                <th colspan="1"></th>
-                                <th colspan="3" style="text-align:center;color:#00cc88;border-bottom:1px solid #1e1e1e;">─── 損益 ───</th>
-                                <th colspan="4" class="group-sep" style="text-align:center;color:#5599ff;border-bottom:1px solid #1e1e1e;">─── 財政状態 ───</th>
-                                <th colspan="4" class="group-sep" style="text-align:center;color:#ffaa44;border-bottom:1px solid #1e1e1e;">─── キャッシュフロー ───</th>
-                                <th colspan="3" class="group-sep" style="text-align:center;color:#cc88ff;border-bottom:1px solid #1e1e1e;">─── 四半期単独 ───</th>
+                                <th colspan="2"></th>
+                                <th colspan="3" class="group-sep" style="text-align:center;color:#00cc88;border-bottom:1px solid #1e1e1e;">─── 損益（単独） ───</th>
+                                <th colspan="4" class="group-sep" style="text-align:center;color:#ffaa44;border-bottom:1px solid #1e1e1e;">─── キャッシュフロー（単独） ───</th>
+                                <th colspan="3" class="group-sep" style="text-align:center;color:#5599ff;border-bottom:1px solid #1e1e1e;">─── 財政状態（Q4） ───</th>
                               </tr>
                               <tr>
-                                <th>期末</th>
-                                <th>売上高</th><th>営業利益</th><th>純利益</th>
-                                <th class="group-sep">総資産</th><th>純資産</th><th>自己資本比率</th><th>株数</th>
+                                <th>期末</th><th>Q</th>
+                                <th class="group-sep">売上高</th><th>営業利益</th><th>純利益</th>
                                 <th class="group-sep">営業CF</th><th>投資CF</th><th>財務CF</th><th>現金等</th>
-                                <th class="group-sep">売上高Q</th><th>営業利益Q</th><th>純利益Q</th>
+                                <th class="group-sep">総資産</th><th>純資産</th><th>自己資本比率</th>
                               </tr>
                             </thead>
                             <tbody>${tableRows}</tbody>
