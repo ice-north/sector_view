@@ -3079,13 +3079,61 @@
             overlay.classList.add('visible');
 
             try {
-                // ① 基本クォートデータ
-                const qRes  = await fetch(PROXY + encodeURIComponent(`${YF_URL}?symbols=${ticker}`));
-                const qJson = await qRes.json();
-                const q     = qJson.quoteResponse?.result?.[0];
+                // ① 基本クォートデータ（3段階フォールバック）
+                let q = null;
+
+                // 試行1: query2 ホスト（query1 より制限が緩い場合が多い）
+                try {
+                    const u = PROXY + encodeURIComponent(
+                        `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`
+                    );
+                    const r = await fetch(u);
+                    const j = await r.json();
+                    q = j.quoteResponse?.result?.[0] || null;
+                } catch { /* 次の試行へ */ }
+
+                // 試行2: ^N225 と一緒に送って 2-symbol リクエストにする
                 if (!q) {
-                    aoBody.innerHTML = `<div class="ao-error">「${rawCode}」のデータが見つかりません。<br>証券コードを確認してください。</div>`;
-                    return;
+                    try {
+                        const u = PROXY + encodeURIComponent(
+                            `${YF_URL}?symbols=${ticker},%5EN225`
+                        );
+                        const r = await fetch(u);
+                        const j = await r.json();
+                        const results = j.quoteResponse?.result || [];
+                        q = results.find(x => x.symbol === ticker || x.symbol === ticker.replace('.T','')) || null;
+                    } catch { /* 次の試行へ */ }
+                }
+
+                // 試行3: query2 + 2-symbol
+                if (!q) {
+                    try {
+                        const u = PROXY + encodeURIComponent(
+                            `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker},%5EN225`
+                        );
+                        const r = await fetch(u);
+                        const j = await r.json();
+                        const results = j.quoteResponse?.result || [];
+                        q = results.find(x => x.symbol === ticker || x.symbol === ticker.replace('.T','')) || null;
+                    } catch { /* 全試行失敗 */ }
+                }
+
+                if (!q) {
+                    // 試行4: チャートAPIから最低限の価格情報を合成
+                    const chartData = await fetchChartOne(ticker, '1m');
+                    if (chartData && chartData.price) {
+                        // 最小限のオブジェクトを作成してフォールバック表示
+                        q = {
+                            regularMarketPrice: chartData.price,
+                            regularMarketChangePercent: chartData.change,
+                            regularMarketChange: 0,
+                            symbol: ticker,
+                            _chartOnly: true,
+                        };
+                    } else {
+                        aoBody.innerHTML = `<div class="ao-error">「${rawCode}」のデータが見つかりません。<br>証券コードを確認してください。<br><small style="color:#666;">（API制限中の場合は数分後に再試行してください）</small></div>`;
+                        return;
+                    }
                 }
 
                 // ② 期間パフォーマンス（並列）
@@ -3096,15 +3144,22 @@
                     perfMap[p] = v ? v.change : null;
                 }));
 
-                // ③ 四半期財務データ（v10 quoteSummary）
+                // ③ 四半期財務データ（v10 quoteSummary、query1→query2フォールバック）
                 let fin = null;
                 try {
-                    const mods   = 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
-                    const fsRes  = await fetch(PROXY + encodeURIComponent(
-                        `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`
-                    ));
-                    const fsJson = await fsRes.json();
-                    if (!fsJson.quoteSummary?.error) fin = fsJson.quoteSummary?.result?.[0];
+                    const mods = 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
+                    for (const host of ['query1', 'query2']) {
+                        try {
+                            const fsRes  = await fetch(PROXY + encodeURIComponent(
+                                `https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`
+                            ));
+                            const fsJson = await fsRes.json();
+                            if (!fsJson.quoteSummary?.error && fsJson.quoteSummary?.result?.[0]) {
+                                fin = fsJson.quoteSummary.result[0];
+                                break;
+                            }
+                        } catch { /* 次のホストへ */ }
+                    }
                 } catch { /* 取得失敗は許容 */ }
 
                 // ── 値整形ヘルパー
