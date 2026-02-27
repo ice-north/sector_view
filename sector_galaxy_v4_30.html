@@ -2216,11 +2216,12 @@
         // 期間 → interval（interval=1wk/3mo は一部銘柄でデータ欠損が生じるため廃止）
         // 6m/1y も interval=1d で取得（データ点が増えるが確実に取得できる）
         const PERIOD_INTERVAL = {
-            '1w': '1d', '1m': '1d', '3m': '1d', '6m': '1d', '1y': '1d',
+            '1d': '1d', '1w': '1d', '1m': '1d', '3m': '1d', '6m': '1d', '1y': '1d',
             '3y': '1mo', '5y': '1mo', '10y': '1mo', 'max': '1mo',
         };
         // 期間 → 秒数（period1/period2 タイムスタンプ方式：range= パラメータの方言差を回避）
         const PERIOD_SECS = {
+            '1d':    5 * 86400,   // 5取引日 → 直近2終値で前日比を計算
             '1w':    5 * 86400,
             '1m':   30 * 86400,
             '3m':   90 * 86400,
@@ -2242,13 +2243,15 @@
             return 0;
         }
 
-        // 疎通テスト
+        // 疎通テスト（Chart v8 API を使用。Yahoo Finance v7 quote は 401 のため廃止）
         async function checkYahooFinance() {
             try {
-                const url = PROXY + encodeURIComponent(`${YF_URL}?symbols=^N225`);
-                const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                const url = PROXY + encodeURIComponent(
+                    `https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?range=1d&interval=1d`
+                );
+                const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
                 const json = await res.json();
-                return !!(json.quoteResponse?.result?.length);
+                return !!(json.chart?.result?.length);
             } catch {
                 return false;
             }
@@ -2261,38 +2264,20 @@
             if (online) {
                 dot.style.background  = '#00ff88';
                 dot.style.boxShadow   = '0 0 6px #00ff88';
-                text.textContent      = 'Yahoo Finance 接続中';
+                text.textContent      = 'マーケットデータ接続中';
                 text.style.color      = '#00ff88';
             } else {
                 dot.style.background  = '#ff4444';
                 dot.style.boxShadow   = 'none';
-                text.textContent      = 'オフライン（デモモード）';
+                text.textContent      = 'データ取得不可';
                 text.style.color      = '#ff4444';
             }
         }
 
-        // 複数ティッカーを分割してバッチ取得
+        // 全銘柄の当日変化率・価格を Chart API (v8) で取得
+        // （Yahoo Finance v7 quote は 401 のため廃止）
         async function fetchYahooBatch(tickers) {
-            const results = {};
-            for (let i = 0; i < tickers.length; i += YF_BATCH) {
-                const batch   = tickers.slice(i, i + YF_BATCH);
-                const symbols = batch.join(',');                            // ← カンマ区切りのまま渡す（後でencodeURIComponentが一括エンコード）
-                try {
-                    const url  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${symbols}`);
-                    const res  = await fetch(url);
-                    const json = await res.json();
-                    for (const item of (json.quoteResponse?.result || [])) {
-                        const code = item.symbol.replace('.T', '');
-                        results[code] = {
-                            change: parseFloat(extractNum(item.regularMarketChangePercent).toFixed(2)),
-                            price:  extractNum(item.regularMarketPrice),
-                        };
-                    }
-                } catch (e) {
-                    console.warn('YF バッチエラー:', e);
-                }
-            }
-            return results;
+            return fetchPeriodChanges(tickers, '1d');
         }
 
         // Spark API（バッチ対応・任意期間の始値→終値変化率を計算）
@@ -2347,7 +2332,10 @@
                 if (!result) return null;
                 const closes = (result.indicators?.quote?.[0]?.close || []).filter(v => v != null);
                 if (closes.length < 2) return null;
-                const first = closes[0];
+                // 1d は直近2終値（前日比）、それ以外は最古→最新（期間騰落率）
+                const first = (period === '1d' && closes.length >= 2)
+                    ? closes[closes.length - 2]
+                    : closes[0];
                 const last  = closes[closes.length - 1];
                 return {
                     change: parseFloat(((last - first) / first * 100).toFixed(2)),
@@ -2446,25 +2434,11 @@
             });
         }
 
-        // 市場指数を Yahoo Finance から取得（期間対応）
+        // 市場指数を取得（全期間 Chart v8 API で統一。Yahoo Finance v7 quote は 401 のため廃止）
         async function fetchMarketFromYahoo(period = '1m') {
             const idxSymbols = ['^N225', '1306.T', '2516.T', 'JPY=X'];
-
-            if (period === '1d') {
-                // 当日は quote API（正式な前日比）
-                const url  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${idxSymbols.join(',')}`);
-                const res  = await fetch(url);
-                const json = await res.json();
-                const map  = {};
-                for (const item of (json.quoteResponse?.result || [])) {
-                    map[item.symbol] = {
-                        price:  extractNum(item.regularMarketPrice),
-                        change: parseFloat(extractNum(item.regularMarketChangePercent).toFixed(2)),
-                    };
-                }
-                return { nikkei: map['^N225'], topix: map['1306.T'], growth: map['2516.T'], usdjpy: map['JPY=X'] };
-            } else {
-                // その他の期間は Chart v8 API（タイムスタンプ方式・キャッシュ付き）
+            {
+                // 全期間共通: Chart v8 API（1d は直近2終値で前日比）
                 const changes = await fetchPeriodChanges(idxSymbols, period);
                 return {
                     nikkei: changes['^N225'],
