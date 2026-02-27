@@ -3064,6 +3064,167 @@
             document.getElementById('analysis-overlay').classList.remove('visible');
         }
 
+        // ────────────────────────────────────────────────────────────────
+        // IRBank.net スクレイピング（P&L / CF / BS を並列取得）
+        // ────────────────────────────────────────────────────────────────
+        async function fetchIRBankFin(rawCode) {
+            const IRBANK = 'https://irbank.net';
+
+            // 1ページ分の HTML テーブルを取得してパースするヘルパー
+            const parsePage = async (path) => {
+                try {
+                    const res = await fetch(
+                        PROXY + encodeURIComponent(`${IRBANK}/${rawCode}/${path}`)
+                    );
+                    if (!res.ok) return { headers: [], rows: [] };
+                    const html = await res.text();
+                    const doc  = new DOMParser().parseFromString(html, 'text/html');
+
+                    // 財務データを含むテーブルを探す
+                    let tbl = null;
+                    for (const t of doc.querySelectorAll('table')) {
+                        const txt = (t.querySelector('thead') || t.querySelector('tr'))?.textContent || '';
+                        if (/売上|営業|純利|総資産|キャッシュ|現金/.test(txt)) { tbl = t; break; }
+                    }
+                    if (!tbl) {
+                        console.warn(`[IRBank] /${path}: テーブルが見つかりません`);
+                        return { headers: [], rows: [] };
+                    }
+
+                    // ヘッダー取得（単位を除去して正規化）
+                    const hdrEls = Array.from(tbl.querySelectorAll('thead th, thead td'));
+                    const rawHdrs = hdrEls.map(th => th.textContent.trim());
+                    const headers = rawHdrs.map(h => h.replace(/\s+/g, '').replace(/\(.*?\)/g, ''));
+
+                    // 単位検出: 千円表記なら /1e3 で百万円に揃える、百万円なら /1 (既に百万)
+                    const isThousands = rawHdrs.some(h => /千円/.test(h));
+                    const unitDiv     = isThousands ? 1e3 : 1;
+                    console.log(`[IRBank] /${path} headers:`, headers, isThousands ? '(千円→百万円)' : '(百万円)');
+
+                    // tbody 行をパース
+                    const rows = [];
+                    for (const tr of tbl.querySelectorAll('tbody tr')) {
+                        const cells = Array.from(tr.querySelectorAll('td, th')).map(c =>
+                            c.textContent.trim().replace(/,/g, '').replace(/[－—–]/g, '0')
+                        );
+                        if (cells.length >= 2) rows.push({ cells, unitDiv });
+                    }
+                    return { headers, rows };
+                } catch (e) {
+                    console.error(`[IRBank] /${path} error:`, e);
+                    return { headers: [], rows: [] };
+                }
+            };
+
+            // P&L, CF, BS を並列取得
+            const [plData, cfData, bsData] = await Promise.all([
+                parsePage('results'),
+                parsePage('cf'),
+                parsePage('bs'),
+            ]);
+
+            if (!plData.rows.length) {
+                console.warn('[IRBank] P&Lデータが取得できませんでした');
+                return null;
+            }
+
+            // 列インデックス検索ヘルパー
+            const findCol = (hdrs, ...pats) => {
+                for (const pat of pats) {
+                    const i = hdrs.findIndex(h => new RegExp(pat).test(h));
+                    if (i >= 0) return i;
+                }
+                return -1;
+            };
+
+            // P&L 列マッピング
+            const plH = plData.headers;
+            const iDate   = findCol(plH, '期末');
+            const iRev    = findCol(plH, '売上高', '売上');
+            const iOpInc  = findCol(plH, '営業益', '営業利益');
+            const iNetInc = findCol(plH, '純利益', '当期純利益', '当期利益');
+            const iEqRat  = findCol(plH, '自己資本比率');
+            console.log('[IRBank] P&L cols:', { iDate, iRev, iOpInc, iNetInc, iEqRat });
+
+            // CF 列マッピング
+            const cfH = cfData.headers;
+            const icDate  = findCol(cfH, '期末');
+            const icOpCF  = findCol(cfH, '営業CF', '営業活動', '営業キャッシュ');
+            const icInvCF = findCol(cfH, '投資CF', '投資活動', '投資キャッシュ');
+            const icFinCF = findCol(cfH, '財務CF', '財務活動', '財務キャッシュ');
+            const icCash  = findCol(cfH, '現金等', '期末現金', '現金');
+
+            // BS 列マッピング
+            const bsH = bsData.headers;
+            const ibDate   = findCol(bsH, '期末');
+            const ibAssets = findCol(bsH, '総資産');
+            const ibEquity = findCol(bsH, '純資産', '自己資本');
+            const ibShares = findCol(bsH, '株数', '発行済');
+
+            // 数値取得ヘルパー（百万円単位）
+            const getNum = (cells, i, unitDiv) => {
+                if (i < 0 || i >= cells.length) return null;
+                const v = parseFloat(cells[i]);
+                return isNaN(v) ? null : v / unitDiv;
+            };
+
+            // CF / BS を日付キーでインデックス化
+            const cfByDate = {}, bsByDate = {};
+            for (const { cells, unitDiv } of cfData.rows) {
+                const d = icDate >= 0 ? cells[icDate] : null;
+                if (!d) continue;
+                cfByDate[d] = {
+                    opCF:  getNum(cells, icOpCF,  unitDiv),
+                    invCF: getNum(cells, icInvCF, unitDiv),
+                    finCF: getNum(cells, icFinCF, unitDiv),
+                    cash:  getNum(cells, icCash,  unitDiv),
+                };
+            }
+            for (const { cells, unitDiv } of bsData.rows) {
+                const d = ibDate >= 0 ? cells[ibDate] : null;
+                if (!d) continue;
+                bsByDate[d] = {
+                    assets: getNum(cells, ibAssets, unitDiv),
+                    equity: getNum(cells, ibEquity, unitDiv),
+                    shares: ibShares >= 0 ? (parseFloat(cells[ibShares]) || null) : null,
+                };
+            }
+
+            // P&L 行と CF/BS をマージして最終行配列を生成
+            const result = [];
+            for (const { cells, unitDiv } of plData.rows) {
+                const d = iDate >= 0 ? cells[iDate] : null;
+                if (!d || d.length < 6) continue;
+
+                const rev    = getNum(cells, iRev,    unitDiv);
+                const opInc  = getNum(cells, iOpInc,  unitDiv);
+                const netInc = getNum(cells, iNetInc, unitDiv);
+                const eqRatRaw = iEqRat >= 0 ? parseFloat(cells[iEqRat]) : NaN;
+
+                const cf = cfByDate[d] || {};
+                const bs = bsByDate[d] || {};
+
+                const assets  = bs.assets  ?? null;
+                const equity  = bs.equity  ?? null;
+                const eqRatio = !isNaN(eqRatRaw)
+                    ? eqRatRaw
+                    : (assets && equity ? parseFloat((equity / assets * 100).toFixed(1)) : null);
+
+                result.push({
+                    date: d, rev, opInc, netInc,
+                    assets, equity, eqRatio,
+                    shares: bs.shares  ?? null,
+                    opCF:   cf.opCF   ?? null,
+                    invCF:  cf.invCF  ?? null,
+                    finCF:  cf.finCF  ?? null,
+                    cash:   cf.cash   ?? null,
+                });
+            }
+
+            console.log('[IRBank] 取得完了 rows:', result.length, result[0] ?? '(なし)');
+            return result.length ? result : null;
+        }
+
         async function analyzeStock() {
             const input   = document.getElementById('stock-code-input');
             const rawCode = input.value.trim().replace(/[^0-9A-Za-z]/g, '');
@@ -3136,31 +3297,36 @@
                     }
                 }
 
-                // ② 期間パフォーマンス（並列）
+                // ② 期間パフォーマンス + ③ IRBank財務データ（完全並列）
                 const perfPeriods = ['1w', '1m', '3m', '6m', '1y', '3y'];
                 const perfMap     = {};
-                await Promise.all(perfPeriods.map(async p => {
-                    const v = await fetchChartOne(ticker, p);
-                    perfMap[p] = v ? v.change : null;
-                }));
+                const [, irbankRows] = await Promise.all([
+                    Promise.all(perfPeriods.map(async p => {
+                        const v = await fetchChartOne(ticker, p);
+                        perfMap[p] = v ? v.change : null;
+                    })),
+                    fetchIRBankFin(rawCode),   // 4桁コード（.T なし）
+                ]);
 
-                // ③ 四半期財務データ（v10 quoteSummary、query1→query2フォールバック）
+                // ③ Yahoo Finance フォールバック（IRBank が取得できなかった場合のみ）
                 let fin = null;
-                try {
-                    const mods = 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
-                    for (const host of ['query1', 'query2']) {
-                        try {
-                            const fsRes  = await fetch(PROXY + encodeURIComponent(
-                                `https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`
-                            ));
-                            const fsJson = await fsRes.json();
-                            if (!fsJson.quoteSummary?.error && fsJson.quoteSummary?.result?.[0]) {
-                                fin = fsJson.quoteSummary.result[0];
-                                break;
-                            }
-                        } catch { /* 次のホストへ */ }
-                    }
-                } catch { /* 取得失敗は許容 */ }
+                if (!irbankRows) {
+                    try {
+                        const mods = 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
+                        for (const host of ['query1', 'query2']) {
+                            try {
+                                const fsRes  = await fetch(PROXY + encodeURIComponent(
+                                    `https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`
+                                ));
+                                const fsJson = await fsRes.json();
+                                if (!fsJson.quoteSummary?.error && fsJson.quoteSummary?.result?.[0]) {
+                                    fin = fsJson.quoteSummary.result[0];
+                                    break;
+                                }
+                            } catch { /* 次のホストへ */ }
+                        }
+                    } catch { /* 取得失敗は許容 */ }
+                }
 
                 // ── 値整形ヘルパー
                 const N = (v) => extractNum(v);
@@ -3193,47 +3359,58 @@
 
                 // ── 財務テーブル構築
                 const buildFinTable = () => {
-                    const incQtrs = fin?.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-                    const balQtrs = fin?.balanceSheetHistoryQuarterly?.balanceSheetStatements   || [];
-                    const cfQtrs  = fin?.cashflowStatementHistoryQuarterly?.cashflowStatements  || [];
+                    // ── 行データ生成（IRBank 優先 → Yahoo Finance フォールバック）
+                    let rows = null;
+                    let dataSource = '';
 
-                    if (!incQtrs.length) {
-                        return `<div class="ao-note" style="text-align:left;color:#555;padding:1rem;">
-                            四半期財務データは Yahoo Finance から取得できませんでした。<br>
-                            （API制限）直近の決算情報は各社 IR ページをご参照ください。
-                        </div>`;
+                    if (irbankRows && irbankRows.length) {
+                        // IRBank: rows はすでに { date, rev, opInc, netInc, assets, equity,
+                        //         eqRatio, shares, opCF, invCF, finCF, cash } 形式
+                        rows = [...irbankRows].sort((a, b) => a.date.localeCompare(b.date));
+                        dataSource = 'IRBank.net';
+                    } else {
+                        // Yahoo Finance フォールバック
+                        const incQtrs = fin?.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+                        const balQtrs = fin?.balanceSheetHistoryQuarterly?.balanceSheetStatements   || [];
+                        const cfQtrs  = fin?.cashflowStatementHistoryQuarterly?.cashflowStatements  || [];
+
+                        if (!incQtrs.length) {
+                            return `<div class="ao-note" style="text-align:left;color:#555;padding:1rem;">
+                                四半期財務データの取得に失敗しました。<br>
+                                IRBank.net・Yahoo Finance ともに取得できませんでした。<br>
+                                （API制限）直近の決算情報は各社 IR ページをご参照ください。
+                            </div>`;
+                        }
+
+                        const byDate = {};
+                        incQtrs.forEach(r => {
+                            const d = r.endDate?.fmt; if (!d) return;
+                            byDate[d] = byDate[d] || { date: d };
+                            byDate[d].rev    = N(r.totalRevenue)    / 1e6;
+                            byDate[d].opInc  = N(r.operatingIncome) / 1e6;
+                            byDate[d].netInc = N(r.netIncome)       / 1e6;
+                        });
+                        balQtrs.forEach(r => {
+                            const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
+                            byDate[d].assets  = N(r.totalAssets)              / 1e6;
+                            byDate[d].equity  = N(r.totalStockholderEquity)   / 1e6;
+                            byDate[d].shares  = N(r.commonStockSharesOutstanding || r.commonStock);
+                        });
+                        cfQtrs.forEach(r => {
+                            const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
+                            byDate[d].opCF   = N(r.operatingCashflow)                     / 1e6;
+                            byDate[d].invCF  = N(r.totalCashflowsFromInvestingActivities  || r.capitalExpenditures) / 1e6;
+                            byDate[d].finCF  = N(r.totalCashFromFinancingActivities)       / 1e6;
+                            byDate[d].cash   = N(r.endCashPosition || r.changeInCash)      / 1e6;
+                        });
+                        rows = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+                        // 自己資本比率を計算
+                        rows.forEach(r => {
+                            r.eqRatio = (r.assets && r.equity)
+                                ? parseFloat((r.equity / r.assets * 100).toFixed(1)) : null;
+                        });
+                        dataSource = 'Yahoo Finance';
                     }
-
-                    // 日付をキーにデータをマージ
-                    const byDate = {};
-                    incQtrs.forEach(r => {
-                        const d = r.endDate?.fmt; if (!d) return;
-                        byDate[d] = byDate[d] || { date: d };
-                        byDate[d].rev    = N(r.totalRevenue)    / 1e6;
-                        byDate[d].opInc  = N(r.operatingIncome) / 1e6;
-                        byDate[d].netInc = N(r.netIncome)       / 1e6;
-                    });
-                    balQtrs.forEach(r => {
-                        const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
-                        byDate[d].assets  = N(r.totalAssets)              / 1e6;
-                        byDate[d].equity  = N(r.totalStockholderEquity)   / 1e6;
-                        byDate[d].shares  = N(r.commonStockSharesOutstanding || r.commonStock);
-                    });
-                    cfQtrs.forEach(r => {
-                        const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
-                        byDate[d].opCF   = N(r.operatingCashflow)                     / 1e6;
-                        byDate[d].invCF  = N(r.totalCashflowsFromInvestingActivities  || r.capitalExpenditures) / 1e6;
-                        byDate[d].finCF  = N(r.totalCashFromFinancingActivities)       / 1e6;
-                        byDate[d].cash   = N(r.endCashPosition || r.changeInCash)      / 1e6;
-                    });
-
-                    // 日付昇順ソート（古い→新しい）
-                    const rows = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-
-                    // 自己資本比率を計算
-                    rows.forEach(r => {
-                        r.eqRatio = (r.assets && r.equity) ? (r.equity / r.assets * 100).toFixed(1) : null;
-                    });
 
                     // 四半期単独値を計算（累積→単独：日本会計基準対応）
                     // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
@@ -3282,7 +3459,7 @@
                     }).join('');
 
                     return `
-                        <div class="ao-note">単位: 百万円 ／ 自己資本比率は純資産÷総資産で算出</div>
+                        <div class="ao-note">単位: 百万円 ／ 自己資本比率は純資産÷総資産で算出 ／ データソース: ${dataSource}</div>
                         <div class="fin-table-wrap">
                           <table class="fin-table">
                             <thead>
@@ -3338,7 +3515,7 @@
                     </div>
 
                     <!-- ③ 四半期財務テーブル -->
-                    <div class="ao-section-title">四半期財務データ（累積＋単独換算）</div>
+                    <div class="ao-section-title">四半期財務データ（累積＋単独換算）${irbankRows ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
                     ${buildFinTable()}
                 `;
 
