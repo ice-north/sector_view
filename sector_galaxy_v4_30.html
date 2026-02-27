@@ -3099,14 +3099,13 @@
                     // 単位検出: 千円表記なら /1e3 で百万円に揃える、百万円なら /1 (既に百万)
                     const isThousands = rawHdrs.some(h => /千円/.test(h));
                     const unitDiv     = isThousands ? 1e3 : 1;
-                    console.log(`[IRBank] /${path} rawHeaders:`, JSON.stringify(rawHdrs));
-                    console.log(`[IRBank] /${path} headers:`, JSON.stringify(headers), isThousands ? '(千円→百万円)' : '(百万円)');
+                    console.log(`[IRBank] /${path}:`, JSON.stringify(headers), isThousands ? 'unit=千円' : 'unit=百万円');
 
-                    // tbody 行をパース
+                    // tbody 行をパース（カンマのみ除去。ダッシュ類は getNum で null 扱い）
                     const rows = [];
                     for (const tr of tbl.querySelectorAll('tbody tr')) {
                         const cells = Array.from(tr.querySelectorAll('td, th')).map(c =>
-                            c.textContent.trim().replace(/,/g, '').replace(/[－—–]/g, '0')
+                            c.textContent.trim().replace(/,/g, '')
                         );
                         if (cells.length >= 2) rows.push({ cells, unitDiv });
                     }
@@ -3146,7 +3145,6 @@
             const iNetInc = findCol(plH, '^純利$', '純利益', '当期純利益', '当期利益');
             const iEqRat  = findCol(plH, '自己資本比率');
             console.log('[IRBank] P&L cols:', JSON.stringify({ iDate, iRev, iOpInc, iNetInc, iEqRat }));
-            if (plData.rows.length) console.log('[IRBank] P&L row[0] cells:', JSON.stringify(plData.rows[0].cells));
 
             // CF 列マッピング
             const cfH = cfData.headers;
@@ -3156,8 +3154,6 @@
             const icInvCF   = findCol(cfH, '投資CF', '投資活動', '投資キャッシュ');
             const icFinCF   = findCol(cfH, '財務CF', '財務活動', '財務キャッシュ');
             const icCash    = findCol(cfH, '現金等', '期末現金', '現金');
-            console.log('[IRBank] CF cols:', JSON.stringify({ icDate, icQuarter, icOpCF, icInvCF, icFinCF, icCash }));
-
             // BS 列マッピング（「自己資本比率」を株主資本として誤マッチしないよう完全一致で検索）
             const bsH = bsData.headers;
             const ibDate   = findCol(bsH, '年度', '決算期', '期末', '決算', '^期$');
@@ -3165,13 +3161,15 @@
             const ibEquity = findCol(bsH, '株主資本', '純資産', '^自己資本$');
             const ibEqRat  = findCol(bsH, '自己資本比率');
             const ibShares = findCol(bsH, '株数', '発行済');
-            console.log('[IRBank] BS cols:', JSON.stringify({ ibDate, ibAssets, ibEquity, ibEqRat, ibShares }));
+            console.log('[IRBank] col map: BS', JSON.stringify({ ibDate, ibAssets, ibEquity, ibEqRat, ibShares }));
 
             // 数値取得ヘルパー（irbank の億/兆/万表記を百万円に変換）
+            // 数値取得ヘルパー: irbank の億/兆/万表記 → 百万円に変換
+            // 単一ダッシュ記号（全・半角問わず）は欠損値として null を返す
             const getNum = (cells, i, unitDiv) => {
                 if (i < 0 || i >= cells.length) return null;
                 const raw = (cells[i] ?? '').trim();
-                if (!raw || /^[-－—–]$/.test(raw)) return null;
+                if (!raw || /^[-－ー—–−]$/.test(raw)) return null;  // 欠損値記号
                 const v = parseFloat(raw);
                 if (isNaN(v)) return null;
                 if (raw.includes('兆')) return v * 1_000_000;  // 1兆 = 1,000,000 百万円
