@@ -496,7 +496,7 @@
         .sidebar {
             background: #0f0f0f;
             border-left: 1px solid #222;
-            padding: 2rem 0.5rem;
+            padding: 0;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
@@ -504,12 +504,151 @@
             grid-row: 1 / 3;
         }
 
-        .sidebar h2 {
-            font-size: 1.1rem;
-            margin-bottom: 1.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid #333;
+        /* タブナビ */
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid #222;
+            flex-shrink: 0;
         }
+        .sidebar-tab {
+            flex: 1;
+            padding: 0.75rem 0.4rem;
+            background: none;
+            border: none;
+            color: #555;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+        .sidebar-tab:hover { color: #aaa; }
+        .sidebar-tab.active {
+            color: #00ff88;
+            border-bottom-color: #00ff88;
+        }
+
+        /* タブパネル共通 */
+        .sidebar-panel {
+            padding: 0.8rem 0.5rem;
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 銘柄分析：検索ボックス */
+        .stock-search-box {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .stock-code-input {
+            flex: 1;
+            padding: 8px 10px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .stock-code-input:focus { border-color: #00ff88; }
+        .stock-search-btn {
+            padding: 8px 14px;
+            background: linear-gradient(135deg, #00ff88, #00cc6a);
+            color: #0a0a0a;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: opacity 0.2s;
+        }
+        .stock-search-btn:hover { opacity: 0.85; }
+
+        /* 銘柄分析：結果カード */
+        .stock-header {
+            margin-bottom: 12px;
+        }
+        .stock-name {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 2px;
+        }
+        .stock-code-badge {
+            font-size: 0.72rem;
+            color: #555;
+        }
+        .stock-price-row {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 6px 0 12px;
+        }
+        .stock-price-big {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #fff;
+        }
+        .stock-change-big {
+            font-size: 1rem;
+            font-weight: 700;
+        }
+        .stock-change-big.pos { color: #00ff88; }
+        .stock-change-big.neg { color: #ff4444; }
+
+        .analysis-section-title {
+            font-size: 0.72rem;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin: 12px 0 6px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #1e1e1e;
+        }
+
+        /* 期間パフォーマンスグリッド */
+        .perf-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+        .perf-cell {
+            background: #141414;
+            border-radius: 6px;
+            padding: 7px 8px;
+            text-align: center;
+        }
+        .perf-period {
+            font-size: 0.65rem;
+            color: #555;
+            margin-bottom: 2px;
+        }
+        .perf-value {
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+        .perf-value.pos { color: #00ff88; }
+        .perf-value.neg { color: #ff4444; }
+        .perf-value.neu { color: #666; }
+
+        /* 指標テーブル */
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid #141414;
+            font-size: 0.82rem;
+        }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: #666; }
+        .metric-value { color: #ccc; font-weight: 600; }
 
         .news-container {
             max-height: calc(100vh - 200px);
@@ -1023,64 +1162,54 @@
                         <div class="center-value" id="nikkei-change">+1.8%</div>
                     </div>
                 </div>
-                
-                <!-- 市場指標パネル -->
-                <div class="market-indicators">
-                    <div class="indicator-item">
-                        <div class="indicator-label">日経平均</div>
-                        <div class="indicator-value">
-                            <div class="indicator-price" id="nikkei-indicator-price">¥39,081</div>
-                            <div class="indicator-change positive" id="nikkei-indicator-change">+1.8%</div>
-                        </div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="indicator-label">TOPIX</div>
-                        <div class="indicator-value">
-                            <div class="indicator-price" id="topix-price">2,723</div>
-                            <div class="indicator-change positive" id="topix-change">+1.5%</div>
-                        </div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="indicator-label">グロース250</div>
-                        <div class="indicator-value">
-                            <div class="indicator-price" id="growth-price">685</div>
-                            <div class="indicator-change positive" id="growth-change">+2.3%</div>
-                        </div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="indicator-label">ドル円</div>
-                        <div class="indicator-value">
-                            <div class="indicator-price" id="usdjpy-price">¥157.82</div>
-                            <div class="indicator-change negative" id="usdjpy-change">-0.3%</div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
 
         <div class="sidebar">
-            <h2>📰 主要ニュース＆イベント</h2>
-
-            <!-- サーバー接続状態 -->
-            <div id="server-status" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:0.72rem;color:#666;padding:4px 6px;background:rgba(255,255,255,0.03);border-radius:4px;">
-                <div id="status-dot" style="width:8px;height:8px;border-radius:50%;background:#444;flex-shrink:0;transition:background 0.4s;"></div>
-                <span id="status-text">接続確認中...</span>
+            <!-- タブナビゲーション -->
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" id="tab-news" onclick="switchSidebarTab('news')">📰 ニュース</button>
+                <button class="sidebar-tab" id="tab-analysis" onclick="switchSidebarTab('analysis')">🔍 銘柄分析</button>
             </div>
 
-            <!-- リアルタイム株価更新ボタン -->
-            <button id="realtime-btn" onclick="fetchRealTimeAll()" style="width:100%;padding:8px;margin-bottom:6px;background:linear-gradient(135deg,#0055ff,#0033cc);color:#fff;border:none;border-radius:6px;font-size:0.85rem;font-weight:700;cursor:pointer;transition:all 0.3s ease;">
-                📡 リアルタイム株価更新
-            </button>
+            <!-- ─── ニュースタブ ─── -->
+            <div class="sidebar-panel" id="panel-news">
+                <!-- サーバー接続状態 -->
+                <div id="server-status" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:0.72rem;color:#666;padding:4px 6px;background:rgba(255,255,255,0.03);border-radius:4px;">
+                    <div id="status-dot" style="width:8px;height:8px;border-radius:50%;background:#444;flex-shrink:0;transition:background 0.4s;"></div>
+                    <span id="status-text">接続確認中...</span>
+                </div>
+                <button id="realtime-btn" onclick="fetchRealTimeAll()" style="width:100%;padding:8px;margin-bottom:6px;background:linear-gradient(135deg,#0055ff,#0033cc);color:#fff;border:none;border-radius:6px;font-size:0.85rem;font-weight:700;cursor:pointer;transition:all 0.3s ease;">
+                    📡 リアルタイム株価更新
+                </button>
+                <button id="news-btn" onclick="fetchNews(event)" style="width:100%;padding:8px;margin-bottom:6px;background:linear-gradient(135deg,#00ff88,#00cc6a);color:#0a0a0a;border:none;border-radius:6px;font-size:0.85rem;font-weight:700;cursor:pointer;transition:all 0.3s ease;">
+                    🔄 ニュース取得
+                </button>
+                <div id="last-updated" style="text-align:center;font-size:0.68rem;color:#444;margin-bottom:10px;min-height:14px;"></div>
+                <div class="news-container" id="news-container"></div>
+            </div>
 
-            <!-- ニュース取得ボタン -->
-            <button id="news-btn" onclick="fetchNews(event)" style="width: 100%; padding: 8px; margin-bottom: 6px; background: linear-gradient(135deg, #00ff88, #00cc6a); color: #0a0a0a; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease;">
-                🔄 ニュース取得
-            </button>
+            <!-- ─── 銘柄分析タブ ─── -->
+            <div class="sidebar-panel" id="panel-analysis" style="display:none;">
+                <!-- 検索入力 -->
+                <div class="stock-search-box">
+                    <input type="text" id="stock-code-input" class="stock-code-input"
+                           placeholder="証券コード（例: 7203）"
+                           maxlength="5"
+                           onkeydown="if(event.key==='Enter') analyzeStock()">
+                    <button class="stock-search-btn" onclick="analyzeStock()">分析</button>
+                </div>
+                <div style="font-size:0.68rem;color:#555;margin-bottom:12px;text-align:center;">
+                    東証コードを入力してください（4〜5桁）
+                </div>
 
-            <!-- 最終更新時刻 -->
-            <div id="last-updated" style="text-align:center;font-size:0.68rem;color:#444;margin-bottom:10px;min-height:14px;"></div>
-
-            <div class="news-container" id="news-container"></div>
+                <!-- 分析結果エリア -->
+                <div id="analysis-result">
+                    <div style="text-align:center;color:#444;font-size:0.85rem;padding:2rem 0;">
+                        証券コードを入力して「分析」を<br>押してください
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- 企業詳細パネル -->
@@ -2162,40 +2291,15 @@
             }
         }
 
-        // 市場指数を UI に反映
+        // 市場指数を UI に反映（market-indicators パネルは削除済みのため null-safe）
+        const $ = id => document.getElementById(id);
         function applyMarketData(data) {
             if (data.nikkei) {
                 const p = data.nikkei.price, c = data.nikkei.change;
-                document.getElementById('nikkei-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
-                const changeEl = document.getElementById('nikkei-change');
-                changeEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
-                changeEl.className = `center-value${c < 0 ? ' negative' : ''}`;
-                document.getElementById('nikkei-indicator-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
-                const ic = document.getElementById('nikkei-indicator-change');
-                ic.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
-                ic.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
-                document.getElementById('center-circle').className = `center-circle${c < 0 ? ' negative-market' : ''}`;
-            }
-            if (data.topix) {
-                const c = data.topix.change;
-                document.getElementById('topix-price').textContent = data.topix.price.toFixed(0);
-                const tc = document.getElementById('topix-change');
-                tc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
-                tc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
-            }
-            if (data.growth) {
-                const c = data.growth.change;
-                document.getElementById('growth-price').textContent = data.growth.price.toFixed(0);
-                const gc = document.getElementById('growth-change');
-                gc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
-                gc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
-            }
-            if (data.usdjpy) {
-                const c = data.usdjpy.change;
-                document.getElementById('usdjpy-price').textContent = `¥${data.usdjpy.price.toFixed(2)}`;
-                const uc = document.getElementById('usdjpy-change');
-                uc.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`;
-                uc.className = `indicator-change ${c < 0 ? 'negative' : 'positive'}`;
+                if ($('nikkei-price'))  $('nikkei-price').textContent = `¥${p.toLocaleString('ja-JP', {maximumFractionDigits:0})}`;
+                const changeEl = $('nikkei-change');
+                if (changeEl) { changeEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`; changeEl.className = `center-value${c < 0 ? ' negative' : ''}`; }
+                $('center-circle').className = `center-circle${c < 0 ? ' negative-market' : ''}`;
             }
         }
 
@@ -2605,47 +2709,21 @@
         }
 
         function updateNikkeiAverage() {
-            const avgChange = SECTORS.reduce((sum, s) => sum + s.value, 0) / SECTORS.length;
-            const nikkeiEl = document.getElementById('nikkei-change');
-            const centerCircle = document.getElementById('center-circle');
-            const priceEl = document.getElementById('nikkei-price');
-            
-            const basePrice = 39081;
-            const currentPrice = basePrice * (1 + avgChange / 100);
-            const formattedPrice = `¥${Math.floor(currentPrice).toLocaleString()}`;
-            
-            priceEl.textContent = formattedPrice;
-            nikkeiEl.textContent = `${avgChange > 0 ? '+' : ''}${avgChange.toFixed(1)}%`;
-            
-            document.getElementById('nikkei-indicator-price').textContent = formattedPrice;
-            document.getElementById('nikkei-indicator-change').textContent = `${avgChange > 0 ? '+' : ''}${avgChange.toFixed(1)}%`;
-            document.getElementById('nikkei-indicator-change').className = `indicator-change ${avgChange >= 0 ? 'positive' : 'negative'}`;
-            
-            const topixBase = 2723;
-            const topixCurrent = topixBase * (1 + avgChange / 100);
-            document.getElementById('topix-price').textContent = Math.floor(topixCurrent).toLocaleString();
-            document.getElementById('topix-change').textContent = `${avgChange > 0 ? '+' : ''}${avgChange.toFixed(1)}%`;
-            document.getElementById('topix-change').className = `indicator-change ${avgChange >= 0 ? 'positive' : 'negative'}`;
-            
-            const growthBase = 685;
-            const growthChange = avgChange * 1.5;
-            const growthCurrent = growthBase * (1 + growthChange / 100);
-            document.getElementById('growth-price').textContent = Math.floor(growthCurrent).toLocaleString();
-            document.getElementById('growth-change').textContent = `${growthChange > 0 ? '+' : ''}${growthChange.toFixed(1)}%`;
-            document.getElementById('growth-change').className = `indicator-change ${growthChange >= 0 ? 'positive' : 'negative'}`;
-            
-            const usdJpyBase = 157.82;
-            const usdJpyChange = -avgChange * 0.15;
-            const usdJpyCurrent = usdJpyBase * (1 + usdJpyChange / 100);
-            document.getElementById('usdjpy-price').textContent = `¥${usdJpyCurrent.toFixed(2)}`;
-            document.getElementById('usdjpy-change').textContent = `${usdJpyChange > 0 ? '+' : ''}${usdJpyChange.toFixed(2)}%`;
-            document.getElementById('usdjpy-change').className = `indicator-change ${usdJpyChange >= 0 ? 'positive' : 'negative'}`;
-            
+            const avgChange   = SECTORS.reduce((sum, s) => sum + s.value, 0) / SECTORS.length;
+            const nikkeiEl    = $('nikkei-change');
+            const centerCircle = $('center-circle');
+            const priceEl     = $('nikkei-price');
+            const basePrice   = 39081;
+            const formattedPrice = `¥${Math.floor(basePrice * (1 + avgChange / 100)).toLocaleString()}`;
+
+            if (priceEl)  priceEl.textContent  = formattedPrice;
+            if (nikkeiEl) nikkeiEl.textContent  = `${avgChange > 0 ? '+' : ''}${avgChange.toFixed(1)}%`;
+
             if (avgChange >= 0) {
-                nikkeiEl.className = 'center-value';
+                if (nikkeiEl) nikkeiEl.className = 'center-value';
                 centerCircle.classList.remove('negative-market');
             } else {
-                nikkeiEl.className = 'center-value negative';
+                if (nikkeiEl) nikkeiEl.className = 'center-value negative';
                 centerCircle.classList.add('negative-market');
             }
         }
@@ -2773,6 +2851,119 @@
         document.getElementById('center-circle').addEventListener('mouseleave', () => {
             hideSectorTooltip();
         });
+
+        // ─────────────────────────────────────────────────
+        //  サイドバー タブ切り替え
+        // ─────────────────────────────────────────────────
+        function switchSidebarTab(tab) {
+            ['news', 'analysis'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+                document.getElementById(`panel-${t}`).style.display = t === tab ? 'flex' : 'none';
+            });
+        }
+
+        // ─────────────────────────────────────────────────
+        //  銘柄分析
+        // ─────────────────────────────────────────────────
+        async function analyzeStock() {
+            const input   = document.getElementById('stock-code-input');
+            const result  = document.getElementById('analysis-result');
+            const rawCode = input.value.trim().replace(/[^0-9A-Za-z]/g, '');
+            if (!rawCode) { input.focus(); return; }
+
+            const ticker = rawCode.includes('.') ? rawCode : `${rawCode}.T`;
+            result.innerHTML = `<div style="text-align:center;color:#555;padding:2rem 0;font-size:0.85rem;">取得中...</div>`;
+
+            try {
+                // ─── 基本クォートデータ取得
+                const qUrl  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${ticker}&modules=price,summaryDetail,defaultKeyStatistics`);
+                const qRes  = await fetch(qUrl);
+                const qJson = await qRes.json();
+                const q     = qJson.quoteResponse?.result?.[0];
+
+                if (!q) {
+                    result.innerHTML = `<div style="text-align:center;color:#ff4444;padding:2rem 0;font-size:0.85rem;">
+                        「${rawCode}」のデータが見つかりません。<br>証券コードを確認してください。</div>`;
+                    return;
+                }
+
+                const name   = q.longName || q.shortName || rawCode;
+                const price  = extractNum(q.regularMarketPrice);
+                const chgPct = extractNum(q.regularMarketChangePercent);
+                const chgAbs = extractNum(q.regularMarketChange);
+                const mktCap = extractNum(q.marketCap);
+                const per    = extractNum(q.trailingPE);
+                const pbr    = extractNum(q.priceToBook);
+                const divYld = extractNum(q.dividendYield) * 100;
+                const hi52   = extractNum(q.fiftyTwoWeekHigh);
+                const lo52   = extractNum(q.fiftyTwoWeekLow);
+                const volAvg = extractNum(q.averageDailyVolume3Month || q.averageVolume);
+
+                // ─── 期間別パフォーマンス（並列取得）
+                const periods = ['1w', '1m', '3m', '6m', '1y', '3y'];
+                const perfMap = {};
+                await Promise.all(periods.map(async p => {
+                    const v = await fetchChartOne(ticker, p);
+                    perfMap[p] = v ? v.change : null;
+                }));
+
+                // ─── UI 構築
+                const sign = chgPct >= 0 ? '+' : '';
+                const cls  = chgPct >= 0 ? 'pos' : 'neg';
+
+                const fmtPct = (v) => {
+                    if (v === null || isNaN(v)) return '<span class="perf-value neu">—</span>';
+                    const s = v >= 0 ? '+' : '';
+                    return `<span class="perf-value ${v >= 0 ? 'pos' : 'neg'}">${s}${v.toFixed(2)}%</span>`;
+                };
+                const fmtCap = (c) => {
+                    if (!c) return '—';
+                    const t = c / 1e12;
+                    return t >= 1 ? `${t.toFixed(1)}兆円` : `${(c/1e8).toFixed(0)}億円`;
+                };
+                const fmtVol = (v) => {
+                    if (!v) return '—';
+                    return v >= 1e6 ? `${(v/1e6).toFixed(1)}百万株` : `${(v/1e4).toFixed(0)}万株`;
+                };
+
+                result.innerHTML = `
+                    <div class="stock-header">
+                        <div class="stock-name">${name}</div>
+                        <div class="stock-code-badge">${ticker} · ${q.fullExchangeName || q.exchange || 'TSE'}</div>
+                    </div>
+                    <div class="stock-price-row">
+                        <span class="stock-price-big">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
+                        <span class="stock-change-big ${cls}">${sign}${chgPct.toFixed(2)}%</span>
+                    </div>
+                    <div style="font-size:0.75rem;color:#555;margin-bottom:4px;">
+                        前日比 ${sign}¥${Math.abs(chgAbs).toFixed(price < 100 ? 3 : 0)}
+                    </div>
+
+                    <div class="analysis-section-title">期間別パフォーマンス</div>
+                    <div class="perf-grid">
+                        <div class="perf-cell"><div class="perf-period">1週</div>${fmtPct(perfMap['1w'])}</div>
+                        <div class="perf-cell"><div class="perf-period">1ヶ月</div>${fmtPct(perfMap['1m'])}</div>
+                        <div class="perf-cell"><div class="perf-period">3ヶ月</div>${fmtPct(perfMap['3m'])}</div>
+                        <div class="perf-cell"><div class="perf-period">6ヶ月</div>${fmtPct(perfMap['6m'])}</div>
+                        <div class="perf-cell"><div class="perf-period">1年</div>${fmtPct(perfMap['1y'])}</div>
+                        <div class="perf-cell"><div class="perf-period">3年</div>${fmtPct(perfMap['3y'])}</div>
+                    </div>
+
+                    <div class="analysis-section-title">主要指標</div>
+                    <div class="metric-row"><span class="metric-label">時価総額</span><span class="metric-value">${fmtCap(mktCap)}</span></div>
+                    ${per  ? `<div class="metric-row"><span class="metric-label">PER（実績）</span><span class="metric-value">${per.toFixed(1)}倍</span></div>` : ''}
+                    ${pbr  ? `<div class="metric-row"><span class="metric-label">PBR</span><span class="metric-value">${pbr.toFixed(2)}倍</span></div>` : ''}
+                    ${divYld > 0 ? `<div class="metric-row"><span class="metric-label">配当利回り</span><span class="metric-value">${divYld.toFixed(2)}%</span></div>` : ''}
+                    <div class="metric-row"><span class="metric-label">52週高値</span><span class="metric-value">¥${hi52.toLocaleString()}</span></div>
+                    <div class="metric-row"><span class="metric-label">52週安値</span><span class="metric-value">¥${lo52.toLocaleString()}</span></div>
+                    ${volAvg ? `<div class="metric-row"><span class="metric-label">平均出来高（3ヶ月）</span><span class="metric-value">${fmtVol(volAvg)}</span></div>` : ''}
+                `;
+            } catch (e) {
+                console.error('analyzeStock error:', e);
+                result.innerHTML = `<div style="text-align:center;color:#ff4444;padding:2rem 0;font-size:0.85rem;">
+                    取得中にエラーが発生しました。<br>しばらくしてから再試行してください。</div>`;
+            }
+        }
     </script>
 </body>
 </html>
