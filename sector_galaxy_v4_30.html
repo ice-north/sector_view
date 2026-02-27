@@ -3099,7 +3099,8 @@
                     // 単位検出: 千円表記なら /1e3 で百万円に揃える、百万円なら /1 (既に百万)
                     const isThousands = rawHdrs.some(h => /千円/.test(h));
                     const unitDiv     = isThousands ? 1e3 : 1;
-                    console.log(`[IRBank] /${path} headers:`, headers, isThousands ? '(千円→百万円)' : '(百万円)');
+                    console.log(`[IRBank] /${path} rawHeaders:`, JSON.stringify(rawHdrs));
+                    console.log(`[IRBank] /${path} headers:`, JSON.stringify(headers), isThousands ? '(千円→百万円)' : '(百万円)');
 
                     // tbody 行をパース
                     const rows = [];
@@ -3137,29 +3138,33 @@
                 return -1;
             };
 
-            // P&L 列マッピング
+            // P&L 列マッピング（irbank.net は「決算期」を使用）
             const plH = plData.headers;
-            const iDate   = findCol(plH, '期末');
+            const iDate   = findCol(plH, '決算期', '期末', '決算', '^期$');
             const iRev    = findCol(plH, '売上高', '売上');
             const iOpInc  = findCol(plH, '営業益', '営業利益');
             const iNetInc = findCol(plH, '純利益', '当期純利益', '当期利益');
             const iEqRat  = findCol(plH, '自己資本比率');
-            console.log('[IRBank] P&L cols:', { iDate, iRev, iOpInc, iNetInc, iEqRat });
+            console.log('[IRBank] P&L cols:', JSON.stringify({ iDate, iRev, iOpInc, iNetInc, iEqRat }));
+            // 第1行目のセルも確認
+            if (plData.rows.length) console.log('[IRBank] P&L row[0] cells:', JSON.stringify(plData.rows[0].cells));
 
             // CF 列マッピング
             const cfH = cfData.headers;
-            const icDate  = findCol(cfH, '期末');
+            const icDate  = findCol(cfH, '決算期', '期末', '決算', '^期$');
             const icOpCF  = findCol(cfH, '営業CF', '営業活動', '営業キャッシュ');
             const icInvCF = findCol(cfH, '投資CF', '投資活動', '投資キャッシュ');
             const icFinCF = findCol(cfH, '財務CF', '財務活動', '財務キャッシュ');
             const icCash  = findCol(cfH, '現金等', '期末現金', '現金');
+            console.log('[IRBank] CF cols:', JSON.stringify({ icDate, icOpCF, icInvCF, icFinCF, icCash }));
 
             // BS 列マッピング
             const bsH = bsData.headers;
-            const ibDate   = findCol(bsH, '期末');
+            const ibDate   = findCol(bsH, '決算期', '期末', '決算', '^期$');
             const ibAssets = findCol(bsH, '総資産');
             const ibEquity = findCol(bsH, '純資産', '自己資本');
             const ibShares = findCol(bsH, '株数', '発行済');
+            console.log('[IRBank] BS cols:', JSON.stringify({ ibDate, ibAssets, ibEquity, ibShares }));
 
             // 数値取得ヘルパー（百万円単位）
             const getNum = (cells, i, unitDiv) => {
@@ -3168,11 +3173,13 @@
                 return isNaN(v) ? null : v / unitDiv;
             };
 
-            // CF / BS を日付キーでインデックス化
+            // CF / BS を日付キーでインデックス化（列が見つからない場合はセル[0]フォールバック）
             const cfByDate = {}, bsByDate = {};
+            const cfDateIdx = icDate >= 0 ? icDate : 0;
+            const bsDateIdx = ibDate >= 0 ? ibDate : 0;
             for (const { cells, unitDiv } of cfData.rows) {
-                const d = icDate >= 0 ? cells[icDate] : null;
-                if (!d) continue;
+                const d = cells[cfDateIdx]?.trim() || null;
+                if (!d || d.length < 4) continue;
                 cfByDate[d] = {
                     opCF:  getNum(cells, icOpCF,  unitDiv),
                     invCF: getNum(cells, icInvCF, unitDiv),
@@ -3181,8 +3188,8 @@
                 };
             }
             for (const { cells, unitDiv } of bsData.rows) {
-                const d = ibDate >= 0 ? cells[ibDate] : null;
-                if (!d) continue;
+                const d = cells[bsDateIdx]?.trim() || null;
+                if (!d || d.length < 4) continue;
                 bsByDate[d] = {
                     assets: getNum(cells, ibAssets, unitDiv),
                     equity: getNum(cells, ibEquity, unitDiv),
@@ -3191,10 +3198,13 @@
             }
 
             // P&L 行と CF/BS をマージして最終行配列を生成
+            // iDate が見つからない場合はセル[0]（最初の列）をフォールバックとして使用
+            const dateIdx = iDate >= 0 ? iDate : 0;
             const result = [];
             for (const { cells, unitDiv } of plData.rows) {
-                const d = iDate >= 0 ? cells[iDate] : null;
-                if (!d || d.length < 6) continue;
+                const d = cells[dateIdx]?.trim() || null;
+                // 日付として最低限の長さ（YYYY/MM = 7, YYYY-MM-DD = 10）があるか確認
+                if (!d || d.length < 4) continue;
 
                 const rev    = getNum(cells, iRev,    unitDiv);
                 const opInc  = getNum(cells, iOpInc,  unitDiv);
