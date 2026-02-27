@@ -3138,39 +3138,46 @@
                 return -1;
             };
 
-            // P&L 列マッピング（irbank.net は「決算期」を使用）
+            // P&L 列マッピング（irbank.net は「年度」「営利」「純利」などの短縮形を使用）
             const plH = plData.headers;
-            const iDate   = findCol(plH, '決算期', '期末', '決算', '^期$');
+            const iDate   = findCol(plH, '年度', '決算期', '期末', '決算', '^期$');
             const iRev    = findCol(plH, '売上高', '売上');
-            const iOpInc  = findCol(plH, '営業益', '営業利益');
-            const iNetInc = findCol(plH, '純利益', '当期純利益', '当期利益');
+            const iOpInc  = findCol(plH, '^営利$', '営業益', '営業利益');
+            const iNetInc = findCol(plH, '^純利$', '純利益', '当期純利益', '当期利益');
             const iEqRat  = findCol(plH, '自己資本比率');
             console.log('[IRBank] P&L cols:', JSON.stringify({ iDate, iRev, iOpInc, iNetInc, iEqRat }));
-            // 第1行目のセルも確認
             if (plData.rows.length) console.log('[IRBank] P&L row[0] cells:', JSON.stringify(plData.rows[0].cells));
 
             // CF 列マッピング
             const cfH = cfData.headers;
-            const icDate  = findCol(cfH, '決算期', '期末', '決算', '^期$');
-            const icOpCF  = findCol(cfH, '営業CF', '営業活動', '営業キャッシュ');
-            const icInvCF = findCol(cfH, '投資CF', '投資活動', '投資キャッシュ');
-            const icFinCF = findCol(cfH, '財務CF', '財務活動', '財務キャッシュ');
-            const icCash  = findCol(cfH, '現金等', '期末現金', '現金');
-            console.log('[IRBank] CF cols:', JSON.stringify({ icDate, icOpCF, icInvCF, icFinCF, icCash }));
+            const icDate    = findCol(cfH, '年度', '決算期', '期末', '決算', '^期$');
+            const icQuarter = findCol(cfH, '四半期');  // 通期フィルタ用
+            const icOpCF    = findCol(cfH, '営業CF', '営業活動', '営業キャッシュ');
+            const icInvCF   = findCol(cfH, '投資CF', '投資活動', '投資キャッシュ');
+            const icFinCF   = findCol(cfH, '財務CF', '財務活動', '財務キャッシュ');
+            const icCash    = findCol(cfH, '現金等', '期末現金', '現金');
+            console.log('[IRBank] CF cols:', JSON.stringify({ icDate, icQuarter, icOpCF, icInvCF, icFinCF, icCash }));
 
-            // BS 列マッピング
+            // BS 列マッピング（「自己資本比率」を株主資本として誤マッチしないよう完全一致で検索）
             const bsH = bsData.headers;
-            const ibDate   = findCol(bsH, '決算期', '期末', '決算', '^期$');
+            const ibDate   = findCol(bsH, '年度', '決算期', '期末', '決算', '^期$');
             const ibAssets = findCol(bsH, '総資産');
-            const ibEquity = findCol(bsH, '純資産', '自己資本');
+            const ibEquity = findCol(bsH, '株主資本', '純資産', '^自己資本$');
+            const ibEqRat  = findCol(bsH, '自己資本比率');
             const ibShares = findCol(bsH, '株数', '発行済');
-            console.log('[IRBank] BS cols:', JSON.stringify({ ibDate, ibAssets, ibEquity, ibShares }));
+            console.log('[IRBank] BS cols:', JSON.stringify({ ibDate, ibAssets, ibEquity, ibEqRat, ibShares }));
 
-            // 数値取得ヘルパー（百万円単位）
+            // 数値取得ヘルパー（irbank の億/兆/万表記を百万円に変換）
             const getNum = (cells, i, unitDiv) => {
                 if (i < 0 || i >= cells.length) return null;
-                const v = parseFloat(cells[i]);
-                return isNaN(v) ? null : v / unitDiv;
+                const raw = (cells[i] ?? '').trim();
+                if (!raw || /^[-－—–]$/.test(raw)) return null;
+                const v = parseFloat(raw);
+                if (isNaN(v)) return null;
+                if (raw.includes('兆')) return v * 1_000_000;  // 1兆 = 1,000,000 百万円
+                if (raw.includes('億')) return v * 100;         // 1億 = 100 百万円
+                if (raw.includes('万')) return v * 0.01;        // 1万 = 0.01 百万円
+                return v / unitDiv;  // 単位なし → ヘッダー由来の unitDiv で割る
             };
 
             // CF / BS を日付キーでインデックス化（列が見つからない場合はセル[0]フォールバック）
@@ -3178,6 +3185,11 @@
             const cfDateIdx = icDate >= 0 ? icDate : 0;
             const bsDateIdx = ibDate >= 0 ? ibDate : 0;
             for (const { cells, unitDiv } of cfData.rows) {
+                // 四半期列がある場合は「通期」行のみ使用（1Q/2Q/3Qを除外）
+                if (icQuarter >= 0) {
+                    const qt = cells[icQuarter]?.trim() || '';
+                    if (qt && qt !== '通期' && !/^(FY|年間|年度)$/.test(qt)) continue;
+                }
                 const d = cells[cfDateIdx]?.trim() || null;
                 if (!d || d.length < 4) continue;
                 cfByDate[d] = {
@@ -3190,10 +3202,13 @@
             for (const { cells, unitDiv } of bsData.rows) {
                 const d = cells[bsDateIdx]?.trim() || null;
                 if (!d || d.length < 4) continue;
+                // 自己資本比率を BS から直接取得（P&L にない場合のバックアップ）
+                const eqRatRaw = ibEqRat >= 0 ? parseFloat(cells[ibEqRat]) : NaN;
                 bsByDate[d] = {
-                    assets: getNum(cells, ibAssets, unitDiv),
-                    equity: getNum(cells, ibEquity, unitDiv),
-                    shares: ibShares >= 0 ? (parseFloat(cells[ibShares]) || null) : null,
+                    assets:  getNum(cells, ibAssets, unitDiv),
+                    equity:  getNum(cells, ibEquity, unitDiv),
+                    eqRatio: !isNaN(eqRatRaw) ? eqRatRaw : null,
+                    shares:  ibShares >= 0 ? (parseFloat(cells[ibShares]) || null) : null,
                 };
             }
 
@@ -3209,16 +3224,18 @@
                 const rev    = getNum(cells, iRev,    unitDiv);
                 const opInc  = getNum(cells, iOpInc,  unitDiv);
                 const netInc = getNum(cells, iNetInc, unitDiv);
-                const eqRatRaw = iEqRat >= 0 ? parseFloat(cells[iEqRat]) : NaN;
+                // P&L に自己資本比率がない場合は BS から取得、それもなければ純資産÷総資産で計算
+                const plEqRat = iEqRat >= 0 ? parseFloat(cells[iEqRat]) : NaN;
 
                 const cf = cfByDate[d] || {};
                 const bs = bsByDate[d] || {};
 
                 const assets  = bs.assets  ?? null;
                 const equity  = bs.equity  ?? null;
-                const eqRatio = !isNaN(eqRatRaw)
-                    ? eqRatRaw
-                    : (assets && equity ? parseFloat((equity / assets * 100).toFixed(1)) : null);
+                const eqRatio = !isNaN(plEqRat)
+                    ? plEqRat
+                    : (bs.eqRatio ?? (assets && equity
+                        ? parseFloat((equity / assets * 100).toFixed(1)) : null));
 
                 result.push({
                     date: d, rev, opInc, netInc,
