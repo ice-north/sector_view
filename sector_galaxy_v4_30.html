@@ -3144,7 +3144,12 @@
             const iOpInc  = findCol(plH, '^営利$', '営業益', '営業利益');
             const iNetInc = findCol(plH, '^純利$', '純利益', '当期純利益', '当期利益');
             const iEqRat  = findCol(plH, '自己資本比率');
-            console.log('[IRBank] P&L cols:', JSON.stringify({ iDate, iRev, iOpInc, iNetInc, iEqRat }));
+            // irbank が P&L テーブルに直接提供する計算済み指標
+            const iEPS    = findCol(plH, '^EPS$', '一株益');
+            const iROE    = findCol(plH, '^ROE$');
+            const iROA    = findCol(plH, '^ROA$');
+            const iOpMgn  = findCol(plH, '営利率', '営業利益率');
+            console.log('[IRBank] P&L cols:', JSON.stringify({ iDate, iRev, iOpInc, iNetInc, iEPS, iROE, iROA, iOpMgn }));
 
             // CF 列マッピング
             const cfH = cfData.headers;
@@ -3235,14 +3240,25 @@
                     : (bs.eqRatio ?? (assets && equity
                         ? parseFloat((equity / assets * 100).toFixed(1)) : null));
 
+                // irbank 提供の計算済み指標（EPS は円単位のため unitDiv を使わず直接取得）
+                const safeF = (idx) => {
+                    if (idx < 0 || idx >= cells.length) return null;
+                    const v = parseFloat(cells[idx]);
+                    return isNaN(v) ? null : v;
+                };
                 result.push({
                     date: d, rev, opInc, netInc,
                     assets, equity, eqRatio,
-                    shares: bs.shares  ?? null,
-                    opCF:   cf.opCF   ?? null,
-                    invCF:  cf.invCF  ?? null,
-                    finCF:  cf.finCF  ?? null,
-                    cash:   cf.cash   ?? null,
+                    shares: bs.shares ?? null,
+                    opCF:   cf.opCF  ?? null,
+                    invCF:  cf.invCF ?? null,
+                    finCF:  cf.finCF ?? null,
+                    cash:   cf.cash  ?? null,
+                    // irbank 直接提供の指標
+                    eps:   safeF(iEPS),
+                    roe:   safeF(iROE),
+                    roa:   safeF(iROA),
+                    opMgn: safeF(iOpMgn),
                 });
             }
 
@@ -3364,6 +3380,8 @@
                     return `<${tag} class="ao-perf-val ${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</${tag}>`;
                 };
 
+                // q が null の場合は空オブジェクト代替（q.xxx アクセスで TypeError にならないよう）
+                q = q || {};
                 const price  = N(q.regularMarketPrice);
                 const chgPct = N(q.regularMarketChangePercent);
                 const chgAbs = N(q.regularMarketChange);
@@ -3371,7 +3389,6 @@
                 const per    = N(q.trailingPE);
                 const pbr    = N(q.priceToBook);
                 const psr    = N(q.priceToSalesTrailing12Months);
-                const eps    = N(q.trailingEps);
                 const divYld = N(q.dividendYield) * 100;
                 const hi52   = N(q.fiftyTwoWeekHigh);
                 const lo52   = N(q.fiftyTwoWeekLow);
@@ -3379,6 +3396,28 @@
                 const exch   = q.fullExchangeName || q.exchange || 'TSE';
                 const sign   = chgPct >= 0 ? '+' : '';
                 const cls    = chgPct >= 0 ? 'pos' : 'neg';
+
+                // ── 財務諸表から計算した指標（IRBank データがある場合）
+                let fmMetrics = null;
+                if (irbankRows && irbankRows.length) {
+                    const sorted  = [...irbankRows].sort((a, b) => b.date.localeCompare(a.date));
+                    const latest  = sorted[0];
+                    const prevYr  = sorted[1] ?? null;
+                    const safeDiv = (a, b) => (a !== null && b) ? parseFloat((a / b * 100).toFixed(1)) : null;
+                    const yoy     = (cur, prv) => (cur !== null && prv) ? parseFloat(((cur - prv) / Math.abs(prv) * 100).toFixed(1)) : null;
+                    fmMetrics = {
+                        eps:     latest.eps,
+                        roe:     latest.roe   ?? safeDiv(latest.netInc, latest.equity),
+                        roa:     latest.roa   ?? safeDiv(latest.netInc, latest.assets),
+                        opMgn:   latest.opMgn ?? safeDiv(latest.opInc,  latest.rev),
+                        netMgn:  safeDiv(latest.netInc, latest.rev),
+                        eqRatio: latest.eqRatio,
+                        revYoY:  yoy(latest.rev,    prevYr?.rev),
+                        netYoY:  yoy(latest.netInc, prevYr?.netInc),
+                        fcf:     (latest.opCF !== null && latest.invCF !== null) ? latest.opCF + latest.invCF : null,
+                        date:    latest.date,
+                    };
+                }
 
                 aoTitle.textContent = `${rawCode}  ${name}`;
 
@@ -3512,19 +3551,35 @@
                     <!-- ① メトリクスバー -->
                     <div class="ao-metrics-bar">
                         <div class="ao-price-block">
-                            <span class="ao-price">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
-                            <span class="ao-chg ${cls}">${sign}${chgPct.toFixed(2)}%　${sign}¥${Math.abs(chgAbs).toFixed(0)}</span>
+                            ${price
+                                ? `<span class="ao-price">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
+                                   <span class="ao-chg ${cls}">${sign}${chgPct.toFixed(2)}%　${sign}¥${Math.abs(chgAbs).toFixed(0)}</span>`
+                                : `<span class="ao-price" style="color:#555;font-size:1.4rem;">株価取得不可</span>
+                                   <span style="font-size:0.65rem;color:#444;margin-top:4px;">Yahoo Finance API 認証エラー</span>`
+                            }
                             <div style="font-size:0.7rem;color:#444;margin-top:2px;">${exch}</div>
                         </div>
                         <div class="ao-metrics-grid">
-                            <div class="ao-metric"><span>時価総額</span><strong>${fmtCap(mktCap)}</strong></div>
-                            ${psr   ? `<div class="ao-metric"><span>PSR</span><strong>${psr.toFixed(2)}</strong></div>` : ''}
-                            ${per   ? `<div class="ao-metric"><span>PER（実績）</span><strong>${per.toFixed(2)}倍</strong></div>` : ''}
-                            ${pbr   ? `<div class="ao-metric"><span>PBR</span><strong>${pbr.toFixed(2)}倍</strong></div>` : ''}
-                            ${eps   ? `<div class="ao-metric"><span>EPS</span><strong>¥${eps.toFixed(2)}</strong></div>` : ''}
+                            ${mktCap  ? `<div class="ao-metric"><span>時価総額</span><strong>${fmtCap(mktCap)}</strong></div>` : ''}
+                            ${psr     ? `<div class="ao-metric"><span>PSR</span><strong>${psr.toFixed(2)}</strong></div>` : ''}
+                            ${per     ? `<div class="ao-metric"><span>PER（実績）</span><strong>${per.toFixed(2)}倍</strong></div>` : ''}
+                            ${pbr     ? `<div class="ao-metric"><span>PBR</span><strong>${pbr.toFixed(2)}倍</strong></div>` : ''}
                             ${divYld > 0 ? `<div class="ao-metric"><span>配当利回り</span><strong>${divYld.toFixed(2)}%</strong></div>` : ''}
-                            <div class="ao-metric"><span>52W 高値</span><strong>¥${hi52.toLocaleString()}</strong></div>
-                            <div class="ao-metric"><span>52W 安値</span><strong>¥${lo52.toLocaleString()}</strong></div>
+                            ${hi52    ? `<div class="ao-metric"><span>52W 高値</span><strong>¥${hi52.toLocaleString()}</strong></div>` : ''}
+                            ${lo52    ? `<div class="ao-metric"><span>52W 安値</span><strong>¥${lo52.toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics ? `
+                            <div class="ao-metric-sep"></div>
+                            ${fmMetrics.eps    !== null ? `<div class="ao-metric"><span>EPS</span><strong>¥${fmMetrics.eps.toFixed(2)}</strong></div>` : ''}
+                            ${fmMetrics.roe    !== null ? `<div class="ao-metric"><span>ROE</span><strong>${fmMetrics.roe.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.roa    !== null ? `<div class="ao-metric"><span>ROA</span><strong>${fmMetrics.roa.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.opMgn  !== null ? `<div class="ao-metric"><span>営業利益率</span><strong>${fmMetrics.opMgn.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.netMgn !== null ? `<div class="ao-metric"><span>純利益率</span><strong>${fmMetrics.netMgn.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.eqRatio !== null ? `<div class="ao-metric"><span>自己資本比率</span><strong>${fmMetrics.eqRatio.toFixed !== undefined ? fmMetrics.eqRatio.toFixed(1) : fmMetrics.eqRatio}%</strong></div>` : ''}
+                            ${fmMetrics.revYoY  !== null ? `<div class="ao-metric"><span>売上成長(YoY)</span><strong class="${fmMetrics.revYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.revYoY >= 0 ? '+' : ''}${fmMetrics.revYoY.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.netYoY  !== null ? `<div class="ao-metric"><span>純利成長(YoY)</span><strong class="${fmMetrics.netYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.netYoY >= 0 ? '+' : ''}${fmMetrics.netYoY.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.fcf     !== null ? `<div class="ao-metric"><span>FCF (百万円)</span><strong>${Math.round(fmMetrics.fcf).toLocaleString()}</strong></div>` : ''}
+                            <div class="ao-metric" style="font-size:0.6rem;color:#444;grid-column:span 2;">財務指標: ${fmMetrics.date} 期末 (IRBank.net)</div>
+                            ` : ''}
                         </div>
                     </div>
 
