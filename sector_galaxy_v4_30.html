@@ -1118,6 +1118,30 @@
         }
         .ao-chg.pos { color: #00ff88; }
         .ao-chg.neg { color: #ff4444; }
+        /* 企業名ヘッダー */
+        .ao-company-header {
+            padding: 1rem 1.2rem 0.6rem;
+            border-bottom: 1px solid #1a1a1a;
+            margin-bottom: 0.8rem;
+        }
+        .ao-company-name {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #eee;
+            line-height: 1.2;
+            margin-bottom: 4px;
+        }
+        .ao-company-sub {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.8rem;
+            font-size: 0.75rem;
+            color: #555;
+        }
+        .ao-company-sub strong { color: #aad4ff; font-weight: 700; }
+        .ao-company-sub small  { color: #555; font-size: 0.65rem; }
+
         .ao-metrics-grid {
             display: flex;
             flex-wrap: wrap;
@@ -3067,6 +3091,31 @@
 
         // ─────────────────────────────────────────────────
         //  銘柄分析（フルスクリーンオーバーレイ）
+        // ────────────────────────────────────────────────────────────────
+        // Stooq.com から株価を取得（Yahoo Finance 401 時の代替）
+        // ────────────────────────────────────────────────────────────────
+        async function fetchStooqPrice(rawCode) {
+            try {
+                // stooq は東証銘柄を {code}.jp で識別
+                const url = `https://stooq.com/q/l/?s=${rawCode}.jp&f=sd2t2ohlcv&e=csv`;
+                const res = await fetch(PROXY + encodeURIComponent(url));
+                if (!res.ok) return null;
+                const text = await res.text();
+                // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
+                const lines = text.trim().split('\n');
+                if (lines.length < 2) return null;
+                const cols  = lines[1].split(',');
+                const close = parseFloat(cols[6]); // index 6 = Close
+                const date  = cols[1] || '';
+                if (isNaN(close) || close <= 0) return null;
+                console.log('[Stooq] 株価取得:', rawCode, close, date);
+                return { price: close, date };
+            } catch (e) {
+                console.warn('[Stooq] 取得失敗:', e);
+                return null;
+            }
+        }
+
         // ─────────────────────────────────────────────────
         function closeAnalysisOverlay() {
             document.getElementById('analysis-overlay').classList.remove('visible');
@@ -3078,6 +3127,9 @@
         async function fetchIRBankFin(rawCode) {
             const IRBANK = 'https://irbank.net';
 
+            // 会社名候補を後で使えるよう保持
+            let _companyName = null;
+
             // 1ページ分の HTML テーブルを取得してパースするヘルパー
             const parsePage = async (path) => {
                 try {
@@ -3087,6 +3139,21 @@
                     if (!res.ok) return { headers: [], rows: [] };
                     const html = await res.text();
                     const doc  = new DOMParser().parseFromString(html, 'text/html');
+
+                    // results ページから会社名を取得（h1 優先、タイトルフォールバック）
+                    if (path === 'results' && !_companyName) {
+                        const h1 = doc.querySelector('h1');
+                        if (h1) {
+                            _companyName = h1.textContent.trim().replace(/^\d{4,5}\s+/, '') || null;
+                        }
+                        if (!_companyName) {
+                            _companyName = (doc.title || '')
+                                .split(/[|｜]/)[0]
+                                .replace(/^\s*\d{4,5}\s+/, '')
+                                .replace(/\s*(業績|財務|決算|CF|キャッシュフロー).*$/, '')
+                                .trim() || null;
+                        }
+                    }
 
                     // 財務データを含むテーブルを探す
                     let tbl = null;
@@ -3270,8 +3337,8 @@
                 });
             }
 
-            console.log('[IRBank] 取得完了 rows:', result.length, result[0] ?? '(なし)');
-            return result.length ? result : null;
+            console.log('[IRBank] 取得完了 rows:', result.length, '会社名:', _companyName, result[0] ?? '(なし)');
+            return result.length ? { rows: result, companyName: _companyName } : null;
         }
 
         async function analyzeStock() {
@@ -3346,16 +3413,19 @@
                     }
                 }
 
-                // ② 期間パフォーマンス + ③ IRBank財務データ（完全並列）
+                // ② 期間パフォーマンス + ③ IRBank財務データ + ④ Stooq株価（完全並列）
                 const perfPeriods = ['1w', '1m', '3m', '6m', '1y', '3y'];
                 const perfMap     = {};
-                const [, irbankRows] = await Promise.all([
+                const [, irbankResult, stooqResult] = await Promise.all([
                     Promise.all(perfPeriods.map(async p => {
                         const v = await fetchChartOne(ticker, p);
                         perfMap[p] = v ? v.change : null;
                     })),
-                    fetchIRBankFin(rawCode),   // 4桁コード（.T なし）
+                    fetchIRBankFin(rawCode),    // 4桁コード（.T なし）→ {rows, companyName}
+                    fetchStooqPrice(rawCode),   // Stooq 株価（Yahoo Finance 代替）
                 ]);
+                const irbankRows        = irbankResult?.rows        ?? null;
+                const irbankCompanyName = irbankResult?.companyName ?? null;
 
                 // ③ Yahoo Finance フォールバック（IRBank が取得できなかった場合のみ）
                 let fin = null;
@@ -3390,7 +3460,7 @@
 
                 // q が null の場合は空オブジェクト代替（q.xxx アクセスで TypeError にならないよう）
                 q = q || {};
-                const price  = N(q.regularMarketPrice);
+                const price  = N(q.regularMarketPrice)  || stooqResult?.price  || 0;
                 const chgPct = N(q.regularMarketChangePercent);
                 const chgAbs = N(q.regularMarketChange);
                 const mktCap = N(q.marketCap);
@@ -3400,10 +3470,14 @@
                 const divYld = N(q.dividendYield) * 100;
                 const hi52   = N(q.fiftyTwoWeekHigh);
                 const lo52   = N(q.fiftyTwoWeekLow);
-                const name   = q.longName || q.shortName || rawCode;
+                // 会社名: Yahoo Finance → IRBank → rawCode の順で優先
+                const name   = q.longName || q.shortName || irbankCompanyName || rawCode;
                 const exch   = q.fullExchangeName || q.exchange || 'TSE';
                 const sign   = chgPct >= 0 ? '+' : '';
                 const cls    = chgPct >= 0 ? 'pos' : 'neg';
+                const priceSource = N(q.regularMarketPrice) ? 'Yahoo Finance'
+                                  : stooqResult?.price       ? 'Stooq.com'
+                                  : null;
 
                 // ── 財務諸表から計算した指標（IRBank データがある場合）
                 let fmMetrics = null;
@@ -3425,6 +3499,17 @@
                         fcf:     (latest.opCF !== null && latest.invCF !== null) ? latest.opCF + latest.invCF : null,
                         date:    latest.date,
                     };
+                }
+
+                // 時価総額: Yahoo Finance が使えない場合は EPS から株数を逆算して推定
+                let estMktCap = mktCap || null;
+                if (!estMktCap && price && fmMetrics?.eps && fmMetrics.eps !== 0) {
+                    const sorted0 = [...irbankRows].sort((a, b) => b.date.localeCompare(a.date));
+                    const latestNetInc = sorted0[0]?.netInc; // 百万円
+                    if (latestNetInc) {
+                        const sharesEst = latestNetInc * 1e6 / fmMetrics.eps;
+                        estMktCap = price * sharesEst;
+                    }
                 }
 
                 aoTitle.textContent = `${rawCode}  ${name}`;
@@ -3556,14 +3641,24 @@
                 };
 
                 aoBody.innerHTML = `
+                    <!-- ⓪ 企業名ヘッダー -->
+                    <div class="ao-company-header">
+                        <div class="ao-company-name">${irbankCompanyName || name}</div>
+                        <div class="ao-company-sub">
+                            <span class="ao-company-code">${rawCode}  ${exch}</span>
+                            ${estMktCap ? `<span class="ao-company-cap">時価総額 <strong>${fmtCap(estMktCap)}</strong>${!mktCap ? '<small> (推定)</small>' : ''}</span>` : ''}
+                        </div>
+                    </div>
+
                     <!-- ① メトリクスバー -->
                     <div class="ao-metrics-bar">
                         <div class="ao-price-block">
                             ${price
                                 ? `<span class="ao-price">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
-                                   <span class="ao-chg ${cls}">${sign}${chgPct.toFixed(2)}%　${sign}¥${Math.abs(chgAbs).toFixed(0)}</span>`
-                                : `<span class="ao-price" style="color:#555;font-size:1.4rem;">株価取得不可</span>
-                                   <span style="font-size:0.65rem;color:#444;margin-top:4px;">Yahoo Finance API 認証エラー</span>`
+                                   ${chgPct ? `<span class="ao-chg ${cls}">${sign}${chgPct.toFixed(2)}%　${sign}¥${Math.abs(chgAbs).toFixed(0)}</span>` : ''}
+                                   ${priceSource ? `<div style="font-size:0.6rem;color:#444;margin-top:2px;">出所: ${priceSource}</div>` : ''}`
+                                : `<span class="ao-price" style="color:#555;font-size:1.4rem;">—</span>
+                                   <span style="font-size:0.65rem;color:#444;margin-top:4px;">株価取得不可</span>`
                             }
                             <div style="font-size:0.7rem;color:#444;margin-top:2px;">${exch}</div>
                         </div>
