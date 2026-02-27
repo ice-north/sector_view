@@ -1045,6 +1045,201 @@
                 max-width: 400px;
             }
         }
+
+        /* ═══════════════════════════════════════════
+           銘柄分析オーバーレイ
+           ═══════════════════════════════════════════ */
+        .analysis-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #080808;
+            z-index: 3000;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .analysis-overlay.visible { display: flex; }
+
+        .ao-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.7rem 1.2rem;
+            background: #0f0f0f;
+            border-bottom: 1px solid #1e1e1e;
+            flex-shrink: 0;
+        }
+        .ao-back-btn {
+            background: none;
+            border: 1px solid #333;
+            color: #aaa;
+            padding: 5px 14px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            transition: all 0.2s;
+        }
+        .ao-back-btn:hover { border-color: #00ff88; color: #00ff88; }
+        .ao-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .ao-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.2rem 1.5rem;
+        }
+
+        /* メトリクスバー */
+        .ao-metrics-bar {
+            display: flex;
+            align-items: flex-start;
+            gap: 2rem;
+            flex-wrap: wrap;
+            padding: 1rem 1.2rem;
+            background: #0f0f0f;
+            border: 1px solid #1e1e1e;
+            border-radius: 8px;
+            margin-bottom: 1.2rem;
+        }
+        .ao-price-block { min-width: 180px; }
+        .ao-price {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            display: block;
+            line-height: 1.1;
+        }
+        .ao-chg {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .ao-chg.pos { color: #00ff88; }
+        .ao-chg.neg { color: #ff4444; }
+        .ao-metrics-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1.8rem;
+        }
+        .ao-metric {
+            display: flex;
+            flex-direction: column;
+            min-width: 80px;
+        }
+        .ao-metric span {
+            font-size: 0.65rem;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .ao-metric strong {
+            font-size: 0.92rem;
+            color: #ddd;
+            font-weight: 600;
+        }
+
+        /* 期間パフォーマンス */
+        .ao-perf-row {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            margin-bottom: 1.2rem;
+        }
+        .ao-perf-cell {
+            background: #0f0f0f;
+            border: 1px solid #1a1a1a;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+        }
+        .ao-perf-period { font-size: 0.65rem; color: #555; margin-bottom: 3px; }
+        .ao-perf-val { font-size: 0.9rem; font-weight: 700; }
+        .ao-perf-val.pos { color: #00ff88; }
+        .ao-perf-val.neg { color: #ff4444; }
+        .ao-perf-val.neu { color: #555; }
+
+        .ao-section-title {
+            font-size: 0.7rem;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin: 0 0 8px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+
+        /* 財務テーブル */
+        .fin-table-wrap {
+            overflow-x: auto;
+            border: 1px solid #1a1a1a;
+            border-radius: 6px;
+        }
+        .fin-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+        .fin-table thead tr {
+            background: #111;
+        }
+        .fin-table thead tr.group-header th {
+            font-size: 0.65rem;
+            color: #444;
+            text-align: center;
+            padding: 3px 0;
+            border-bottom: none;
+        }
+        .fin-table th {
+            padding: 7px 10px;
+            text-align: right;
+            color: #666;
+            font-weight: 600;
+            border-bottom: 1px solid #1e1e1e;
+            border-right: 1px solid #151515;
+        }
+        .fin-table th:first-child,
+        .fin-table th:nth-child(2),
+        .fin-table th:nth-child(3) { text-align: center; }
+        .fin-table th.group-sep { border-left: 2px solid #222; }
+        .fin-table td {
+            padding: 5px 10px;
+            text-align: right;
+            color: #bbb;
+            border-bottom: 1px solid #111;
+            border-right: 1px solid #0f0f0f;
+        }
+        .fin-table td:first-child,
+        .fin-table td:nth-child(2),
+        .fin-table td:nth-child(3) { text-align: center; color: #888; }
+        .fin-table td.group-sep { border-left: 2px solid #1e1e1e; }
+        .fin-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+        .fin-table tbody tr.fy-start td { border-top: 1px solid #2a2a2a; }
+        .fin-table .num { font-variant-numeric: tabular-nums; }
+        .fin-table .pos { color: #00cc6a; }
+        .fin-table .neg { color: #cc3333; }
+        .fin-table .dim { color: #444; }
+        .ao-note {
+            font-size: 0.7rem;
+            color: #444;
+            margin-bottom: 8px;
+            text-align: right;
+        }
+        .ao-loading {
+            text-align: center;
+            color: #555;
+            padding: 4rem;
+            font-size: 0.9rem;
+        }
+        .ao-error {
+            text-align: center;
+            color: #ff4444;
+            padding: 3rem;
+            font-size: 0.9rem;
+            line-height: 1.8;
+        }
     </style>
 </head>
 <body>
@@ -2863,107 +3058,255 @@
         }
 
         // ─────────────────────────────────────────────────
-        //  銘柄分析
+        //  銘柄分析（フルスクリーンオーバーレイ）
         // ─────────────────────────────────────────────────
+        function closeAnalysisOverlay() {
+            document.getElementById('analysis-overlay').classList.remove('visible');
+        }
+
         async function analyzeStock() {
             const input   = document.getElementById('stock-code-input');
-            const result  = document.getElementById('analysis-result');
             const rawCode = input.value.trim().replace(/[^0-9A-Za-z]/g, '');
             if (!rawCode) { input.focus(); return; }
 
-            const ticker = rawCode.includes('.') ? rawCode : `${rawCode}.T`;
-            result.innerHTML = `<div style="text-align:center;color:#555;padding:2rem 0;font-size:0.85rem;">取得中...</div>`;
+            const ticker  = rawCode.includes('.') ? rawCode : `${rawCode}.T`;
+            const overlay = document.getElementById('analysis-overlay');
+            const aoBody  = document.getElementById('ao-body');
+            const aoTitle = document.getElementById('ao-title');
+
+            aoTitle.textContent = `${rawCode} — 取得中...`;
+            aoBody.innerHTML    = '<div class="ao-loading">データを取得しています...</div>';
+            overlay.classList.add('visible');
 
             try {
-                // ─── 基本クォートデータ取得
-                const qUrl  = PROXY + encodeURIComponent(`${YF_URL}?symbols=${ticker}&modules=price,summaryDetail,defaultKeyStatistics`);
-                const qRes  = await fetch(qUrl);
+                // ① 基本クォートデータ
+                const qRes  = await fetch(PROXY + encodeURIComponent(`${YF_URL}?symbols=${ticker}`));
                 const qJson = await qRes.json();
                 const q     = qJson.quoteResponse?.result?.[0];
-
                 if (!q) {
-                    result.innerHTML = `<div style="text-align:center;color:#ff4444;padding:2rem 0;font-size:0.85rem;">
-                        「${rawCode}」のデータが見つかりません。<br>証券コードを確認してください。</div>`;
+                    aoBody.innerHTML = `<div class="ao-error">「${rawCode}」のデータが見つかりません。<br>証券コードを確認してください。</div>`;
                     return;
                 }
 
-                const name   = q.longName || q.shortName || rawCode;
-                const price  = extractNum(q.regularMarketPrice);
-                const chgPct = extractNum(q.regularMarketChangePercent);
-                const chgAbs = extractNum(q.regularMarketChange);
-                const mktCap = extractNum(q.marketCap);
-                const per    = extractNum(q.trailingPE);
-                const pbr    = extractNum(q.priceToBook);
-                const divYld = extractNum(q.dividendYield) * 100;
-                const hi52   = extractNum(q.fiftyTwoWeekHigh);
-                const lo52   = extractNum(q.fiftyTwoWeekLow);
-                const volAvg = extractNum(q.averageDailyVolume3Month || q.averageVolume);
-
-                // ─── 期間別パフォーマンス（並列取得）
-                const periods = ['1w', '1m', '3m', '6m', '1y', '3y'];
-                const perfMap = {};
-                await Promise.all(periods.map(async p => {
+                // ② 期間パフォーマンス（並列）
+                const perfPeriods = ['1w', '1m', '3m', '6m', '1y', '3y'];
+                const perfMap     = {};
+                await Promise.all(perfPeriods.map(async p => {
                     const v = await fetchChartOne(ticker, p);
                     perfMap[p] = v ? v.change : null;
                 }));
 
-                // ─── UI 構築
-                const sign = chgPct >= 0 ? '+' : '';
-                const cls  = chgPct >= 0 ? 'pos' : 'neg';
+                // ③ 四半期財務データ（v10 quoteSummary）
+                let fin = null;
+                try {
+                    const mods   = 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
+                    const fsRes  = await fetch(PROXY + encodeURIComponent(
+                        `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`
+                    ));
+                    const fsJson = await fsRes.json();
+                    if (!fsJson.quoteSummary?.error) fin = fsJson.quoteSummary?.result?.[0];
+                } catch { /* 取得失敗は許容 */ }
 
-                const fmtPct = (v) => {
-                    if (v === null || isNaN(v)) return '<span class="perf-value neu">—</span>';
-                    const s = v >= 0 ? '+' : '';
-                    return `<span class="perf-value ${v >= 0 ? 'pos' : 'neg'}">${s}${v.toFixed(2)}%</span>`;
-                };
+                // ── 値整形ヘルパー
+                const N = (v) => extractNum(v);
                 const fmtCap = (c) => {
                     if (!c) return '—';
-                    const t = c / 1e12;
-                    return t >= 1 ? `${t.toFixed(1)}兆円` : `${(c/1e8).toFixed(0)}億円`;
+                    return c >= 1e12 ? `${(c/1e12).toFixed(2)}兆円` : `${(c/1e8).toFixed(1)}億円`;
                 };
-                const fmtVol = (v) => {
-                    if (!v) return '—';
-                    return v >= 1e6 ? `${(v/1e6).toFixed(1)}百万株` : `${(v/1e4).toFixed(0)}万株`;
+                const fmtPct = (v, tag='span') => {
+                    if (v === null || v === undefined || isNaN(v)) return `<${tag} class="ao-perf-val neu">—</${tag}>`;
+                    return `<${tag} class="ao-perf-val ${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</${tag}>`;
                 };
 
-                result.innerHTML = `
-                    <div class="stock-header">
-                        <div class="stock-name">${name}</div>
-                        <div class="stock-code-badge">${ticker} · ${q.fullExchangeName || q.exchange || 'TSE'}</div>
-                    </div>
-                    <div class="stock-price-row">
-                        <span class="stock-price-big">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
-                        <span class="stock-change-big ${cls}">${sign}${chgPct.toFixed(2)}%</span>
-                    </div>
-                    <div style="font-size:0.75rem;color:#555;margin-bottom:4px;">
-                        前日比 ${sign}¥${Math.abs(chgAbs).toFixed(price < 100 ? 3 : 0)}
+                const price  = N(q.regularMarketPrice);
+                const chgPct = N(q.regularMarketChangePercent);
+                const chgAbs = N(q.regularMarketChange);
+                const mktCap = N(q.marketCap);
+                const per    = N(q.trailingPE);
+                const pbr    = N(q.priceToBook);
+                const psr    = N(q.priceToSalesTrailing12Months);
+                const eps    = N(q.trailingEps);
+                const divYld = N(q.dividendYield) * 100;
+                const hi52   = N(q.fiftyTwoWeekHigh);
+                const lo52   = N(q.fiftyTwoWeekLow);
+                const name   = q.longName || q.shortName || rawCode;
+                const exch   = q.fullExchangeName || q.exchange || 'TSE';
+                const sign   = chgPct >= 0 ? '+' : '';
+                const cls    = chgPct >= 0 ? 'pos' : 'neg';
+
+                aoTitle.textContent = `${rawCode}  ${name}`;
+
+                // ── 財務テーブル構築
+                const buildFinTable = () => {
+                    const incQtrs = fin?.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+                    const balQtrs = fin?.balanceSheetHistoryQuarterly?.balanceSheetStatements   || [];
+                    const cfQtrs  = fin?.cashflowStatementHistoryQuarterly?.cashflowStatements  || [];
+
+                    if (!incQtrs.length) {
+                        return `<div class="ao-note" style="text-align:left;color:#555;padding:1rem;">
+                            四半期財務データは Yahoo Finance から取得できませんでした。<br>
+                            （API制限）直近の決算情報は各社 IR ページをご参照ください。
+                        </div>`;
+                    }
+
+                    // 日付をキーにデータをマージ
+                    const byDate = {};
+                    incQtrs.forEach(r => {
+                        const d = r.endDate?.fmt; if (!d) return;
+                        byDate[d] = byDate[d] || { date: d };
+                        byDate[d].rev    = N(r.totalRevenue)    / 1e6;
+                        byDate[d].opInc  = N(r.operatingIncome) / 1e6;
+                        byDate[d].netInc = N(r.netIncome)       / 1e6;
+                    });
+                    balQtrs.forEach(r => {
+                        const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
+                        byDate[d].assets  = N(r.totalAssets)              / 1e6;
+                        byDate[d].equity  = N(r.totalStockholderEquity)   / 1e6;
+                        byDate[d].shares  = N(r.commonStockSharesOutstanding || r.commonStock);
+                    });
+                    cfQtrs.forEach(r => {
+                        const d = r.endDate?.fmt; if (!d || !byDate[d]) return;
+                        byDate[d].opCF   = N(r.operatingCashflow)                     / 1e6;
+                        byDate[d].invCF  = N(r.totalCashflowsFromInvestingActivities  || r.capitalExpenditures) / 1e6;
+                        byDate[d].finCF  = N(r.totalCashFromFinancingActivities)       / 1e6;
+                        byDate[d].cash   = N(r.endCashPosition || r.changeInCash)      / 1e6;
+                    });
+
+                    // 日付昇順ソート（古い→新しい）
+                    const rows = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+
+                    // 自己資本比率を計算
+                    rows.forEach(r => {
+                        r.eqRatio = (r.assets && r.equity) ? (r.equity / r.assets * 100).toFixed(1) : null;
+                    });
+
+                    // 四半期単独値を計算（累積→単独：日本会計基準対応）
+                    // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
+                    rows.forEach((r, i) => {
+                        if (i === 0) {
+                            r.qRev = r.rev; r.qOpInc = r.opInc; r.qNetInc = r.netInc;
+                        } else {
+                            const prev = rows[i - 1];
+                            const isNewFY = (r.rev !== null && prev.rev !== null && r.rev < prev.rev);
+                            r.qRev    = isNewFY ? r.rev    : (r.rev    !== null && prev.rev    !== null ? r.rev    - prev.rev    : null);
+                            r.qOpInc  = isNewFY ? r.opInc  : (r.opInc  !== null && prev.opInc  !== null ? r.opInc  - prev.opInc  : null);
+                            r.qNetInc = isNewFY ? r.netInc : (r.netInc !== null && prev.netInc !== null ? r.netInc - prev.netInc : null);
+                        }
+                    });
+
+                    // 表示は降順（新しい→古い）
+                    rows.reverse();
+
+                    const m = (v, d=0) => {
+                        if (v === null || v === undefined || isNaN(v) || v === 0) return '<span class="dim">—</span>';
+                        const s = v < 0 ? 'neg' : '';
+                        return `<span class="${s} num">${Math.round(v).toLocaleString()}</span>`;
+                    };
+                    const pct = (v) => v !== null ? `<span class="dim">${v}%</span>` : '<span class="dim">—</span>';
+                    const shs = (v) => v ? v.toLocaleString() : '<span class="dim">—</span>';
+
+                    const tableRows = rows.map((r, i) => {
+                        const isFYStart = i > 0 && r.rev !== null && rows[i-1].rev !== null && rows[i-1].rev < r.rev;
+                        return `<tr class="${isFYStart ? 'fy-start' : ''}">
+                            <td>${r.date}</td>
+                            <td class="num">${m(r.rev)}</td>
+                            <td>${m(r.opInc)}</td>
+                            <td>${m(r.netInc)}</td>
+                            <td class="group-sep">${m(r.assets)}</td>
+                            <td>${m(r.equity)}</td>
+                            <td class="num">${pct(r.eqRatio)}</td>
+                            <td class="num">${shs(r.shares)}</td>
+                            <td class="group-sep">${m(r.opCF)}</td>
+                            <td>${m(r.invCF)}</td>
+                            <td>${m(r.finCF)}</td>
+                            <td>${m(r.cash)}</td>
+                            <td class="group-sep">${m(r.qRev)}</td>
+                            <td>${m(r.qOpInc)}</td>
+                            <td>${m(r.qNetInc)}</td>
+                        </tr>`;
+                    }).join('');
+
+                    return `
+                        <div class="ao-note">単位: 百万円 ／ 自己資本比率は純資産÷総資産で算出</div>
+                        <div class="fin-table-wrap">
+                          <table class="fin-table">
+                            <thead>
+                              <tr class="group-header">
+                                <th colspan="1"></th>
+                                <th colspan="3" style="text-align:center;color:#00cc88;border-bottom:1px solid #1e1e1e;">─── 損益 ───</th>
+                                <th colspan="4" class="group-sep" style="text-align:center;color:#5599ff;border-bottom:1px solid #1e1e1e;">─── 財政状態 ───</th>
+                                <th colspan="4" class="group-sep" style="text-align:center;color:#ffaa44;border-bottom:1px solid #1e1e1e;">─── キャッシュフロー ───</th>
+                                <th colspan="3" class="group-sep" style="text-align:center;color:#cc88ff;border-bottom:1px solid #1e1e1e;">─── 四半期単独 ───</th>
+                              </tr>
+                              <tr>
+                                <th>期末</th>
+                                <th>売上高</th><th>営業利益</th><th>純利益</th>
+                                <th class="group-sep">総資産</th><th>純資産</th><th>自己資本比率</th><th>株数</th>
+                                <th class="group-sep">営業CF</th><th>投資CF</th><th>財務CF</th><th>現金等</th>
+                                <th class="group-sep">売上高Q</th><th>営業利益Q</th><th>純利益Q</th>
+                              </tr>
+                            </thead>
+                            <tbody>${tableRows}</tbody>
+                          </table>
+                        </div>`;
+                };
+
+                aoBody.innerHTML = `
+                    <!-- ① メトリクスバー -->
+                    <div class="ao-metrics-bar">
+                        <div class="ao-price-block">
+                            <span class="ao-price">¥${price.toLocaleString('ja-JP', {maximumFractionDigits: price < 100 ? 2 : 0})}</span>
+                            <span class="ao-chg ${cls}">${sign}${chgPct.toFixed(2)}%　${sign}¥${Math.abs(chgAbs).toFixed(0)}</span>
+                            <div style="font-size:0.7rem;color:#444;margin-top:2px;">${exch}</div>
+                        </div>
+                        <div class="ao-metrics-grid">
+                            <div class="ao-metric"><span>時価総額</span><strong>${fmtCap(mktCap)}</strong></div>
+                            ${psr   ? `<div class="ao-metric"><span>PSR</span><strong>${psr.toFixed(2)}</strong></div>` : ''}
+                            ${per   ? `<div class="ao-metric"><span>PER（実績）</span><strong>${per.toFixed(2)}倍</strong></div>` : ''}
+                            ${pbr   ? `<div class="ao-metric"><span>PBR</span><strong>${pbr.toFixed(2)}倍</strong></div>` : ''}
+                            ${eps   ? `<div class="ao-metric"><span>EPS</span><strong>¥${eps.toFixed(2)}</strong></div>` : ''}
+                            ${divYld > 0 ? `<div class="ao-metric"><span>配当利回り</span><strong>${divYld.toFixed(2)}%</strong></div>` : ''}
+                            <div class="ao-metric"><span>52W 高値</span><strong>¥${hi52.toLocaleString()}</strong></div>
+                            <div class="ao-metric"><span>52W 安値</span><strong>¥${lo52.toLocaleString()}</strong></div>
+                        </div>
                     </div>
 
-                    <div class="analysis-section-title">期間別パフォーマンス</div>
-                    <div class="perf-grid">
-                        <div class="perf-cell"><div class="perf-period">1週</div>${fmtPct(perfMap['1w'])}</div>
-                        <div class="perf-cell"><div class="perf-period">1ヶ月</div>${fmtPct(perfMap['1m'])}</div>
-                        <div class="perf-cell"><div class="perf-period">3ヶ月</div>${fmtPct(perfMap['3m'])}</div>
-                        <div class="perf-cell"><div class="perf-period">6ヶ月</div>${fmtPct(perfMap['6m'])}</div>
-                        <div class="perf-cell"><div class="perf-period">1年</div>${fmtPct(perfMap['1y'])}</div>
-                        <div class="perf-cell"><div class="perf-period">3年</div>${fmtPct(perfMap['3y'])}</div>
+                    <!-- ② 期間パフォーマンス -->
+                    <div class="ao-section-title">期間別パフォーマンス</div>
+                    <div class="ao-perf-row">
+                        ${[['1w','1週'],['1m','1ヶ月'],['3m','3ヶ月'],['6m','6ヶ月'],['1y','1年'],['3y','3年']].map(([p, lbl]) =>
+                            `<div class="ao-perf-cell">
+                                <div class="ao-perf-period">${lbl}</div>
+                                ${fmtPct(perfMap[p])}
+                            </div>`
+                        ).join('')}
                     </div>
 
-                    <div class="analysis-section-title">主要指標</div>
-                    <div class="metric-row"><span class="metric-label">時価総額</span><span class="metric-value">${fmtCap(mktCap)}</span></div>
-                    ${per  ? `<div class="metric-row"><span class="metric-label">PER（実績）</span><span class="metric-value">${per.toFixed(1)}倍</span></div>` : ''}
-                    ${pbr  ? `<div class="metric-row"><span class="metric-label">PBR</span><span class="metric-value">${pbr.toFixed(2)}倍</span></div>` : ''}
-                    ${divYld > 0 ? `<div class="metric-row"><span class="metric-label">配当利回り</span><span class="metric-value">${divYld.toFixed(2)}%</span></div>` : ''}
-                    <div class="metric-row"><span class="metric-label">52週高値</span><span class="metric-value">¥${hi52.toLocaleString()}</span></div>
-                    <div class="metric-row"><span class="metric-label">52週安値</span><span class="metric-value">¥${lo52.toLocaleString()}</span></div>
-                    ${volAvg ? `<div class="metric-row"><span class="metric-label">平均出来高（3ヶ月）</span><span class="metric-value">${fmtVol(volAvg)}</span></div>` : ''}
+                    <!-- ③ 四半期財務テーブル -->
+                    <div class="ao-section-title">四半期財務データ（累積＋単独換算）</div>
+                    ${buildFinTable()}
                 `;
+
             } catch (e) {
                 console.error('analyzeStock error:', e);
-                result.innerHTML = `<div style="text-align:center;color:#ff4444;padding:2rem 0;font-size:0.85rem;">
-                    取得中にエラーが発生しました。<br>しばらくしてから再試行してください。</div>`;
+                aoBody.innerHTML = `<div class="ao-error">エラーが発生しました。<br>しばらく経ってから再試行してください。</div>`;
             }
         }
     </script>
+
+    <!-- 銘柄分析フルスクリーンオーバーレイ -->
+    <div id="analysis-overlay" class="analysis-overlay">
+        <div class="ao-topbar">
+            <button class="ao-back-btn" onclick="closeAnalysisOverlay()">← 戻る</button>
+            <div class="ao-title" id="ao-title">銘柄分析</div>
+            <div></div>
+        </div>
+        <div class="ao-body" id="ao-body">
+            <div style="text-align:center;color:#444;padding:4rem;font-size:1rem;">
+                証券コードを入力して「分析」を押してください
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
