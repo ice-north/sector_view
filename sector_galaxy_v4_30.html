@@ -3115,8 +3115,8 @@
                     const html = await res.text();
                     const doc  = new DOMParser().parseFromString(html, 'text/html');
 
-                    // results ページから会社名を取得（h1 優先、タイトルフォールバック）
-                    if (path === 'results' && !_companyName) {
+                    // results / quarter ページから会社名を取得（h1 優先、タイトルフォールバック）
+                    if ((path === 'results' || path === 'quarter') && !_companyName) {
                         const h1 = doc.querySelector('h1');
                         if (h1) {
                             _companyName = h1.textContent.trim().replace(/^\d{4,5}\s+/, '') || null;
@@ -3166,11 +3166,12 @@
                 }
             };
 
-            // P&L, CF, BS を並列取得
-            const [plData, cfData, bsData] = await Promise.all([
+            // P&L, CF, BS, 四半期P&L を並列取得
+            const [plData, cfData, bsData, qData] = await Promise.all([
                 parsePage('results'),
                 parsePage('cf'),
                 parsePage('bs'),
+                parsePage('quarter'),
             ]);
 
             if (!plData.rows.length) {
@@ -3320,8 +3321,98 @@
                 });
             }
 
-            console.log('[IRBank] 取得完了 rows:', result.length, '会社名:', _companyName, result[0] ?? '(なし)');
-            return result.length ? { rows: result, companyName: _companyName } : null;
+            // ── 四半期 P&L パース（irbank.net/{code}/quarter ページ） ──────────
+            // quarter ページは累積値（1Qは単独、2Qは1Q+2Q累積、…）
+            // → buildFinTable での cumulative→standalone 変換がそのまま適用可能
+            const quarterRows = [];
+            if (qData.rows.length) {
+                const qH = qData.headers;
+                const iqYear    = findCol(qH, '年度', '決算期', '期末', '決算', '^期$');
+                const iqQuarter = findCol(qH, '四半期');
+                const iqRev     = findCol(qH, '売上高', '売上');
+                const iqOpInc   = findCol(qH, '^営利$', '営業益', '営業利益');
+                const iqNetInc  = findCol(qH, '^純利$', '純利益', '当期純利益', '当期利益');
+                const iqEPS     = findCol(qH, '^EPS$', '一株益');
+                const iqOpMgn   = findCol(qH, '営利率', '営業利益率');
+                console.log('[IRBank] /quarter cols:', JSON.stringify({ iqYear, iqQuarter, iqRev, iqOpInc, iqNetInc }));
+
+                // 月オフセット加算ヘルパー（負の値で逆算）
+                const addMonths = (year, month, delta) => {
+                    let m = month + delta;
+                    const y = year + Math.floor((m - 1) / 12);
+                    m = ((m - 1) % 12 + 12) % 12 + 1;
+                    return `${y}/${String(m).padStart(2, '0')}`;
+                };
+
+                const usedDates = new Set();
+                for (const { cells, unitDiv } of qData.rows) {
+                    const dateIdx   = iqYear >= 0 ? iqYear : 0;
+                    const fyDateRaw = cells[dateIdx]?.trim() || '';
+                    const qLabel    = iqQuarter >= 0 ? (cells[iqQuarter]?.trim() || '') : '';
+
+                    let d;
+                    if (iqQuarter >= 0 && qLabel) {
+                        // 年度列(FY期末) + 四半期列 → 実際の期末月を逆算
+                        const fyNorm = normDate(fyDateRaw);
+                        if (!fyNorm) continue;
+                        const [fyYearStr, fyMonStr] = fyNorm.split('/');
+                        const fyYear = parseInt(fyYearStr);
+                        const fyMon  = parseInt(fyMonStr);
+                        if (!fyYear || !fyMon) continue;
+
+                        let monthDelta = 0;
+                        if      (/通期|4Q/i.test(qLabel)) monthDelta =  0;
+                        else if (/3Q/i.test(qLabel))      monthDelta = -3;
+                        else if (/2Q/i.test(qLabel))      monthDelta = -6;
+                        else if (/1Q/i.test(qLabel))      monthDelta = -9;
+                        else continue;  // 不明な四半期はスキップ
+
+                        d = addMonths(fyYear, fyMon, monthDelta);
+                    } else {
+                        // 四半期列がない場合は日付列を直接利用
+                        d = normDate(fyDateRaw);
+                        if (!d) continue;
+                    }
+
+                    if (d.length < 4 || usedDates.has(d)) continue;
+                    usedDates.add(d);
+
+                    const rev    = getNum(cells, iqRev,    unitDiv);
+                    const opInc  = getNum(cells, iqOpInc,  unitDiv);
+                    const netInc = getNum(cells, iqNetInc, unitDiv);
+
+                    const cf = cfByDate[d] || {};
+                    const bs = bsByDate[d] || {};
+                    const assets  = bs.assets  ?? null;
+                    const equity  = bs.equity  ?? null;
+                    const eqRatio = bs.eqRatio ?? (assets && equity
+                        ? parseFloat((equity / assets * 100).toFixed(1)) : null);
+
+                    const safeF = (idx) => {
+                        if (idx < 0 || idx >= cells.length) return null;
+                        const v = parseFloat(cells[idx]);
+                        return isNaN(v) ? null : v;
+                    };
+
+                    quarterRows.push({
+                        date: d, rev, opInc, netInc,
+                        assets, equity, eqRatio,
+                        shares: bs.shares ?? null,
+                        opCF:  cf.opCF  ?? null,
+                        invCF: cf.invCF ?? null,
+                        finCF: cf.finCF ?? null,
+                        cash:  cf.cash  ?? null,
+                        eps:   safeF(iqEPS),
+                        roe:   null,
+                        roa:   null,
+                        opMgn: safeF(iqOpMgn),
+                    });
+                }
+                console.log('[IRBank] /quarter parsed:', quarterRows.length, 'rows');
+            }
+
+            console.log('[IRBank] 取得完了 rows:', result.length, '(四半期:', quarterRows.length, ')', '会社名:', _companyName, result[0] ?? '(なし)');
+            return result.length ? { rows: result, quarterRows, companyName: _companyName } : null;
         }
 
         async function analyzeStock() {
@@ -3355,8 +3446,9 @@
                     fetchIRBankFin(rawCode),    // {rows, companyName}
                     fetchStooqPrice(rawCode),   // {price, date} | null
                 ]);
-                const irbankRows        = irbankResult?.rows        ?? null;
-                const irbankCompanyName = irbankResult?.companyName ?? null;
+                const irbankRows        = irbankResult?.rows         ?? null;  // 年次データ（指標計算用）
+                const irbankQuarterRows = irbankResult?.quarterRows  ?? null;  // 四半期データ（テーブル表示用）
+                const irbankCompanyName = irbankResult?.companyName  ?? null;
 
                 // どこからもデータが取れなければエラー
                 if (!irbankRows && !chartNow && !stooqResult) {
@@ -3433,10 +3525,13 @@
                     let rows = null;
                     let dataSource = '';
 
-                    if (irbankRows && irbankRows.length) {
+                    const tableSourceRows = (irbankQuarterRows && irbankQuarterRows.length)
+                        ? irbankQuarterRows   // 四半期データ優先
+                        : irbankRows;         // なければ年次データで代替
+                    if (tableSourceRows && tableSourceRows.length) {
                         // IRBank: rows はすでに { date, rev, opInc, netInc, assets, equity,
                         //         eqRatio, shares, opCF, invCF, finCF, cash } 形式
-                        rows = [...irbankRows].sort((a, b) => a.date.localeCompare(b.date));
+                        rows = [...tableSourceRows].sort((a, b) => a.date.localeCompare(b.date));
                         dataSource = 'IRBank.net';
                     } else {
                         // IRBank も取得できなかった場合
@@ -3519,7 +3614,7 @@
                     }).join('');
 
                     return `
-                        <div class="ao-note">単位: 百万円（四半期単独値） ／ CF・損益は累積から逆算 ／ BS は Q4 のみ ／ データ: ${dataSource}</div>
+                        <div class="ao-note">単位: 百万円（四半期単独値） ／ 累積→単独換算 ／ BS は Q4 のみ ／ データ: ${dataSource}${irbankQuarterRows?.length ? '' : ' ／ ⚠ 四半期データ未取得・年次のみ'}</div>
                         <div class="fin-table-wrap">
                           <table class="fin-table">
                             <thead>
@@ -3595,7 +3690,7 @@
                     </div>
 
                     <!-- ③ 四半期財務テーブル -->
-                    <div class="ao-section-title">四半期財務データ（累積＋単独換算）${irbankRows ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
+                    <div class="ao-section-title">四半期財務データ${irbankQuarterRows?.length ? '' : '（年次）'}${(irbankRows || irbankQuarterRows) ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
                     ${buildFinTable()}
                 `;
 
