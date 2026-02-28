@@ -3166,12 +3166,16 @@
                 }
             };
 
-            // P&L, CF, BS, 四半期P&L を並列取得
-            const [plData, cfData, bsData, qData] = await Promise.all([
+            // P&L, CF, BS, 四半期P&L(Q1/Q2/Q3) を並列取得
+            // IRBank は /quarter=Q1累積, /quarter2=Q2累積(6M), /quarter3=Q3累積(9M)
+            // /results が通期(12M=Q4累積) → 全部揃えて累積→単独換算する
+            const [plData, cfData, bsData, q1Data, q2Data, q3Data] = await Promise.all([
                 parsePage('results'),
                 parsePage('cf'),
                 parsePage('bs'),
-                parsePage('quarter'),
+                parsePage('quarter'),   // Q1 (3M累積)
+                parsePage('quarter2'),  // Q2 (6M累積)
+                parsePage('quarter3'),  // Q3 (9M累積)
             ]);
 
             if (!plData.rows.length) {
@@ -3321,113 +3325,100 @@
                 });
             }
 
-            // ── 四半期 P&L パース（irbank.net/{code}/quarter ページ） ──────────
-            // quarter ページは累積値（1Qは単独、2Qは1Q+2Q累積、…）
-            // → buildFinTable での cumulative→standalone 変換がそのまま適用可能
-            const quarterRows = [];
-            if (qData.rows.length) {
-                const qH = qData.headers;
-                const iqYear    = findCol(qH, '年度', '決算期', '期末', '決算', '^期$');
-                const iqQuarter = findCol(qH, '四半期');
-                const iqRev     = findCol(qH, '売上高', '売上');
-                const iqOpInc   = findCol(qH, '^営利$', '営業益', '営業利益');
-                const iqNetInc  = findCol(qH, '^純利$', '純利益', '当期純利益', '当期利益');
-                const iqEPS     = findCol(qH, '^EPS$', '一株益');
-                const iqOpMgn   = findCol(qH, '営利率', '営業利益率');
-                console.log('[IRBank] /quarter cols:', JSON.stringify({ iqYear, iqQuarter, iqRev, iqOpInc, iqNetInc }));
+            // ── 四半期 P&L 統合 ────────────────────────────────────────────
+            // IRBank URL 構成:
+            //   /quarter  → Q1 累積（3M）、1行/年
+            //   /quarter2 → Q2 累積（6M）、1行/年
+            //   /quarter3 → Q3 累積（9M）、1行/年
+            //   /results  → 通期（12M=Q4累積）、1行/年  ← result 配列に格納済み
+            // 各ページの期末日を normDate で直接取得し、全データを日付キーで統合する。
+            // buildFinTable が「累積→単独換算（Q2=6M-3M, Q3=9M-6M, Q4=12M-9M）」を行う。
 
-                // ── Format 検出 ──────────────────────────────────────────
-                // Format A: 年度列に FY末日が繰り返し（同一 FY の全四半期が同じ日付）
-                //   → 四半期列のオフセットで実際の期末日を逆算する必要あり
-                // Format B: 年度/期末列に各四半期の実際の期末日が入っている
-                //   → 日付をそのまま使う
-                const dateCountMap = {};
-                for (const { cells } of qData.rows) {
-                    const d = normDate(cells[iqYear >= 0 ? iqYear : 0]?.trim() || '') || '';
-                    if (d) dateCountMap[d] = (dateCountMap[d] || 0) + 1;
+            // 1ページ分の四半期 P&L を解析するヘルパー（日付直接利用）
+            const parseQPage = (data, label) => {
+                if (!data.rows.length) {
+                    console.log(`[IRBank] /${label}: データなし`);
+                    return [];
                 }
-                const maxDateCount  = Math.max(0, ...Object.values(dateCountMap));
-                // 3 以上の行が同一日付を持つ → FY末日が共通 = Format A
-                const useFormatA = iqQuarter >= 0 && maxDateCount >= 3;
-                console.log('[IRBank] /quarter format:', useFormatA ? 'A(FY末日+四半期オフセット)' : 'B(期末日直接)', 'maxDateCount:', maxDateCount);
+                const qH = data.headers;
+                const iqYear   = findCol(qH, '年度', '決算期', '期末', '決算', '^期$');
+                const iqRev    = findCol(qH, '売上高', '売上');
+                const iqOpInc  = findCol(qH, '^営利$', '営業益', '営業利益');
+                const iqNetInc = findCol(qH, '^純利$', '純利益', '当期純利益', '当期利益');
+                const iqEPS    = findCol(qH, '^EPS$', '一株益');
+                const iqOpMgn  = findCol(qH, '営利率', '営業利益率');
+                console.log(`[IRBank] /${label} cols:`, JSON.stringify({ iqYear, iqRev, iqOpInc, iqNetInc }), 'headers:', JSON.stringify(qH.slice(0, 6)));
 
-                // 月オフセット加算ヘルパー（負の値で逆算）
-                const addMonths = (year, month, delta) => {
-                    let m = month + delta;
-                    const y = year + Math.floor((m - 1) / 12);
-                    m = ((m - 1) % 12 + 12) % 12 + 1;
-                    return `${y}/${String(m).padStart(2, '0')}`;
-                };
-
-                const usedDates = new Set();
-                for (const { cells, unitDiv } of qData.rows) {
-                    const dateIdx   = iqYear >= 0 ? iqYear : 0;
-                    const fyDateRaw = cells[dateIdx]?.trim() || '';
-                    const qLabel    = iqQuarter >= 0 ? (cells[iqQuarter]?.trim() || '') : '';
-
-                    let d;
-                    if (useFormatA) {
-                        // Format A: 年度列(FY期末) + 四半期列 → 実際の期末月を逆算
-                        const fyNorm = normDate(fyDateRaw);
-                        if (!fyNorm) continue;
-                        const [fyYearStr, fyMonStr] = fyNorm.split('/');
-                        const fyYear = parseInt(fyYearStr);
-                        const fyMon  = parseInt(fyMonStr);
-                        if (!fyYear || !fyMon) continue;
-
-                        let monthDelta = 0;
-                        if      (/通期|4Q/i.test(qLabel)) monthDelta =  0;
-                        else if (/3Q/i.test(qLabel))      monthDelta = -3;
-                        else if (/2Q/i.test(qLabel))      monthDelta = -6;
-                        else if (/1Q/i.test(qLabel))      monthDelta = -9;
-                        else continue;  // 不明な四半期はスキップ
-
-                        d = addMonths(fyYear, fyMon, monthDelta);
-                    } else {
-                        // Format B: 日付列に実際の期末日が入っている → そのまま使用
-                        d = normDate(fyDateRaw);
-                        if (!d) continue;
-                    }
-
-                    if (d.length < 4 || usedDates.has(d)) continue;
-                    usedDates.add(d);
-
-                    const rev    = getNum(cells, iqRev,    unitDiv);
-                    const opInc  = getNum(cells, iqOpInc,  unitDiv);
-                    const netInc = getNum(cells, iqNetInc, unitDiv);
-
-                    const cf = cfByDate[d] || {};
-                    const bs = bsByDate[d] || {};
-                    const assets  = bs.assets  ?? null;
-                    const equity  = bs.equity  ?? null;
-                    const eqRatio = bs.eqRatio ?? (assets && equity
-                        ? parseFloat((equity / assets * 100).toFixed(1)) : null);
+                const rows = [];
+                const used = new Set();
+                for (const { cells, unitDiv } of data.rows) {
+                    const dIdx = iqYear >= 0 ? iqYear : 0;
+                    const d = normDate(cells[dIdx]?.trim() || '');
+                    if (!d || d.length < 4 || used.has(d)) continue;
+                    used.add(d);
 
                     const safeF = (idx) => {
                         if (idx < 0 || idx >= cells.length) return null;
                         const v = parseFloat(cells[idx]);
                         return isNaN(v) ? null : v;
                     };
-
-                    quarterRows.push({
-                        date: d, rev, opInc, netInc,
-                        assets, equity, eqRatio,
-                        shares: bs.shares ?? null,
-                        opCF:  cf.opCF  ?? null,
-                        invCF: cf.invCF ?? null,
-                        finCF: cf.finCF ?? null,
-                        cash:  cf.cash  ?? null,
-                        eps:   safeF(iqEPS),
-                        roe:   null,
-                        roa:   null,
-                        opMgn: safeF(iqOpMgn),
+                    rows.push({
+                        date:   d,
+                        rev:    getNum(cells, iqRev,    unitDiv),
+                        opInc:  getNum(cells, iqOpInc,  unitDiv),
+                        netInc: getNum(cells, iqNetInc, unitDiv),
+                        eps:    safeF(iqEPS),
+                        opMgn:  safeF(iqOpMgn),
                     });
                 }
-                console.log('[IRBank] /quarter parsed:', quarterRows.length, 'rows', quarterRows.slice(0,4).map(r=>r.date));
+                console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows →', rows.slice(0, 3).map(r => r.date));
+                return rows;
+            };
+
+            // 全四半期ページを解析
+            const q1Rows = parseQPage(q1Data, 'quarter');
+            const q2Rows = parseQPage(q2Data, 'quarter2');
+            const q3Rows = parseQPage(q3Data, 'quarter3');
+
+            // 日付をキーに統合（通期/results を優先、各四半期は追加のみ）
+            const allQMap = {};
+            // まず通期（年次 result）を登録
+            for (const r of result) {
+                allQMap[r.date] = { ...r };
+            }
+            // 各四半期ページのデータを追加（重複日付はスキップ）
+            for (const qRow of [...q1Rows, ...q2Rows, ...q3Rows]) {
+                if (allQMap[qRow.date]) continue;  // 既登録（通期と同日 or 重複）はスキップ
+                const cf = cfByDate[qRow.date] || {};
+                const bs = bsByDate[qRow.date] || {};
+                const assets  = bs.assets  ?? null;
+                const equity  = bs.equity  ?? null;
+                const eqRatio = bs.eqRatio ?? (assets && equity
+                    ? parseFloat((equity / assets * 100).toFixed(1)) : null);
+                allQMap[qRow.date] = {
+                    date:   qRow.date,
+                    rev:    qRow.rev,
+                    opInc:  qRow.opInc,
+                    netInc: qRow.netInc,
+                    assets, equity, eqRatio,
+                    shares: bs.shares ?? null,
+                    opCF:   cf.opCF  ?? null,
+                    invCF:  cf.invCF ?? null,
+                    finCF:  cf.finCF ?? null,
+                    cash:   cf.cash  ?? null,
+                    eps:    qRow.eps,
+                    roe:    null,
+                    roa:    null,
+                    opMgn:  qRow.opMgn,
+                };
             }
 
-            console.log('[IRBank] 取得完了 rows:', result.length, '(四半期:', quarterRows.length, ')', '会社名:', _companyName, result[0] ?? '(なし)');
-            return result.length ? { rows: result, quarterRows, companyName: _companyName } : null;
+            const quarterRows = Object.values(allQMap);
+            const hasRealQuarters = q1Rows.length > 0 && (q2Rows.length > 0 || q3Rows.length > 0);
+            console.log('[IRBank] 取得完了 rows:', result.length,
+                '/ Q1:', q1Rows.length, 'Q2:', q2Rows.length, 'Q3:', q3Rows.length,
+                '/ 統合:', quarterRows.length, '会社名:', _companyName);
+            return result.length ? { rows: result, quarterRows, hasRealQuarters, companyName: _companyName } : null;
         }
 
         async function analyzeStock() {
@@ -3461,9 +3452,10 @@
                     fetchIRBankFin(rawCode),    // {rows, companyName}
                     fetchStooqPrice(rawCode),   // {price, date} | null
                 ]);
-                const irbankRows        = irbankResult?.rows         ?? null;  // 年次データ（指標計算用）
-                const irbankQuarterRows = irbankResult?.quarterRows  ?? null;  // 四半期データ（テーブル表示用）
-                const irbankCompanyName = irbankResult?.companyName  ?? null;
+                const irbankRows        = irbankResult?.rows            ?? null;  // 年次データ（指標計算用）
+                const irbankQuarterRows = irbankResult?.quarterRows   ?? null;  // 統合四半期データ（テーブル表示用）
+                const hasRealQuarters   = irbankResult?.hasRealQuarters ?? false; // Q1+Q2+Q3 全取得済み
+                const irbankCompanyName = irbankResult?.companyName   ?? null;
 
                 // どこからもデータが取れなければエラー
                 if (!irbankRows && !chartNow && !stooqResult) {
@@ -3640,7 +3632,7 @@
                     }).join('');
 
                     return `
-                        <div class="ao-note">単位: 百万円（四半期単独値） ／ 累積→単独換算 ／ BS は Q4 のみ ／ データ: ${dataSource}${irbankQuarterRows?.length ? '' : ' ／ ⚠ 四半期データ未取得・年次のみ'}</div>
+                        <div class="ao-note">単位: 百万円（四半期単独値） ／ Q2=6M-3M, Q3=9M-6M, Q4=12M-9M ／ BS は Q4 のみ ／ データ: ${dataSource}${hasRealQuarters ? '' : ' ／ ⚠ Q2/Q3データ未取得'}</div>
                         <div class="fin-table-wrap">
                           <table class="fin-table">
                             <thead>
@@ -3716,7 +3708,7 @@
                     </div>
 
                     <!-- ③ 四半期財務テーブル -->
-                    <div class="ao-section-title">四半期財務データ${irbankQuarterRows?.length ? '' : '（年次）'}${(irbankRows || irbankQuarterRows) ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
+                    <div class="ao-section-title">四半期財務データ${hasRealQuarters ? '' : irbankQuarterRows?.length > (irbankRows?.length ?? 0) ? '（Q1+通期）' : '（年次）'}${(irbankRows || irbankQuarterRows) ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
                     ${buildFinTable()}
                 `;
 
