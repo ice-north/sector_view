@@ -3336,6 +3336,21 @@
                 const iqOpMgn   = findCol(qH, '営利率', '営業利益率');
                 console.log('[IRBank] /quarter cols:', JSON.stringify({ iqYear, iqQuarter, iqRev, iqOpInc, iqNetInc }));
 
+                // ── Format 検出 ──────────────────────────────────────────
+                // Format A: 年度列に FY末日が繰り返し（同一 FY の全四半期が同じ日付）
+                //   → 四半期列のオフセットで実際の期末日を逆算する必要あり
+                // Format B: 年度/期末列に各四半期の実際の期末日が入っている
+                //   → 日付をそのまま使う
+                const dateCountMap = {};
+                for (const { cells } of qData.rows) {
+                    const d = normDate(cells[iqYear >= 0 ? iqYear : 0]?.trim() || '') || '';
+                    if (d) dateCountMap[d] = (dateCountMap[d] || 0) + 1;
+                }
+                const maxDateCount  = Math.max(0, ...Object.values(dateCountMap));
+                // 3 以上の行が同一日付を持つ → FY末日が共通 = Format A
+                const useFormatA = iqQuarter >= 0 && maxDateCount >= 3;
+                console.log('[IRBank] /quarter format:', useFormatA ? 'A(FY末日+四半期オフセット)' : 'B(期末日直接)', 'maxDateCount:', maxDateCount);
+
                 // 月オフセット加算ヘルパー（負の値で逆算）
                 const addMonths = (year, month, delta) => {
                     let m = month + delta;
@@ -3351,8 +3366,8 @@
                     const qLabel    = iqQuarter >= 0 ? (cells[iqQuarter]?.trim() || '') : '';
 
                     let d;
-                    if (iqQuarter >= 0 && qLabel) {
-                        // 年度列(FY期末) + 四半期列 → 実際の期末月を逆算
+                    if (useFormatA) {
+                        // Format A: 年度列(FY期末) + 四半期列 → 実際の期末月を逆算
                         const fyNorm = normDate(fyDateRaw);
                         if (!fyNorm) continue;
                         const [fyYearStr, fyMonStr] = fyNorm.split('/');
@@ -3369,7 +3384,7 @@
 
                         d = addMonths(fyYear, fyMon, monthDelta);
                     } else {
-                        // 四半期列がない場合は日付列を直接利用
+                        // Format B: 日付列に実際の期末日が入っている → そのまま使用
                         d = normDate(fyDateRaw);
                         if (!d) continue;
                     }
@@ -3408,7 +3423,7 @@
                         opMgn: safeF(iqOpMgn),
                     });
                 }
-                console.log('[IRBank] /quarter parsed:', quarterRows.length, 'rows');
+                console.log('[IRBank] /quarter parsed:', quarterRows.length, 'rows', quarterRows.slice(0,4).map(r=>r.date));
             }
 
             console.log('[IRBank] 取得完了 rows:', result.length, '(四半期:', quarterRows.length, ')', '会社名:', _companyName, result[0] ?? '(なし)');
@@ -3562,6 +3577,15 @@
                         return '';
                     };
 
+                    // 四半期期末日 → 当該FYの年度末日を返す
+                    // 例: Dec FY で "2024/06" → "2024/12", Mar FY で "2024/06" → "2025/03"
+                    const getFYEndDate = (date) => {
+                        const parts = date.split('/');
+                        const y = parseInt(parts[0]), mo = parseInt(parts[1]);
+                        const fyYear = mo <= fyEndMonth ? y : y + 1;
+                        return `${fyYear}/${String(fyEndMonth).padStart(2, '0')}`;
+                    };
+
                     // ── 四半期単独値（累積→単独換算）──────────────────
                     // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
                     rows.forEach((r, i) => {
@@ -3592,13 +3616,15 @@
                     const pct = (v) => v !== null && !isNaN(v) ? `<span class="num">${typeof v === 'number' ? v.toFixed(1) : v}%</span>` : '<span class="dim">—</span>';
 
                     const tableRows = rows.map((r, i) => {
-                        // FY 境界: 降順で前行（より新しい行）の累積 rev が現在行より小さい = 新FY開始直後
-                        const isFYBorder = i > 0 && r.rev !== null && rows[i-1].rev !== null && rows[i-1].rev < r.rev;
+                        // FY 境界: 年度末日が変わるタイミングで区切り線を表示
+                        const isFYBorder = i > 0 && getFYEndDate(r.date) !== getFYEndDate(rows[i-1].date);
                         const qLabel = getQLabel(r.date);
                         const isQ4   = qLabel === 'Q4';
                         const qCls   = isQ4 ? 'q4-row' : '';
+                        // 期末列には四半期期末日ではなく FY 年度末日を表示（ユーザー要望）
+                        const dispDate = getFYEndDate(r.date);
                         return `<tr class="${isFYBorder ? 'fy-start ' : ''}${qCls}">
-                            <td style="white-space:nowrap">${r.date}</td>
+                            <td style="white-space:nowrap">${dispDate}</td>
                             <td style="color:${isQ4?'#88aaff':'#555'};font-size:0.8em;text-align:center;">${qLabel}</td>
                             <td class="group-sep">${m(r.qRev)}</td>
                             <td>${m(r.qOpInc)}</td>
