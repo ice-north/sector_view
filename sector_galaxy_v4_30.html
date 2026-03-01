@@ -3250,13 +3250,53 @@
                 return d;
             };
 
-            // CF / BS を日付キーでインデックス化（列が見つからない場合はセル[0]フォールバック）
+            // ── 月オフセット加算ヘルパー（CF/四半期ページ共用）──────────────
+            const addMonths = (year, month, delta) => {
+                let m = month + delta;
+                const y = year + Math.floor((m - 1) / 12);
+                m = ((m - 1) % 12 + 12) % 12 + 1;
+                return `${y}/${String(m).padStart(2, '0')}`;
+            };
+            // 四半期ラベル → 月オフセット（1Q=-9, 2Q=-6, 3Q=-3, 4Q/通期=0, 不明=null）
+            const qLabelDelta = (lbl) => {
+                if (/通期|4Q/i.test(lbl)) return  0;
+                if (/3Q/i.test(lbl))      return -3;
+                if (/2Q/i.test(lbl))      return -6;
+                if (/1Q/i.test(lbl))      return -9;
+                return null;
+            };
+            // Format A/B 判定: 同一日付が 3 行以上 → Format A（FY末日繰り返し＋四半期列）
+            // 返り値は (cells) => 実際の期末日文字列 | null なクロージャ
+            const resolveQDate = (rows, dateIdx, quarterIdx) => {
+                const cntMap = {};
+                for (const { cells } of rows) {
+                    const d = normDate(cells[dateIdx]?.trim() || '') || '';
+                    if (d) cntMap[d] = (cntMap[d] || 0) + 1;
+                }
+                const maxCnt = Math.max(0, ...Object.values(cntMap));
+                const useA   = quarterIdx >= 0 && maxCnt >= 3;
+                return (cells) => {
+                    if (useA) {
+                        const fy = normDate(cells[dateIdx]?.trim() || '');
+                        if (!fy) return null;
+                        const [ys, ms] = fy.split('/');
+                        const y = parseInt(ys), mo = parseInt(ms);
+                        if (!y || !mo) return null;
+                        const delta = qLabelDelta(cells[quarterIdx]?.trim() || '');
+                        if (delta === null) return null;
+                        return addMonths(y, mo, delta);
+                    }
+                    return normDate(cells[dateIdx]?.trim() || '');
+                };
+            };
+
+            // CF / BS を日付キーでインデックス化（Format A/B 自動判定）
             const cfByDate = {}, bsByDate = {};
             const cfDateIdx = icDate >= 0 ? icDate : 0;
             const bsDateIdx = ibDate >= 0 ? ibDate : 0;
+            const cfResolve = resolveQDate(cfData.rows, cfDateIdx, icQuarter);
             for (const { cells, unitDiv } of cfData.rows) {
-                // 四半期フィルターなし: 通期・1Q・2Q・3Q 全行を日付キーで保持
-                const d = normDate(cells[cfDateIdx]?.trim()) || null;
+                const d = cfResolve(cells);
                 if (!d || d.length < 4) continue;
                 cfByDate[d] = {
                     opCF:  getNum(cells, icOpCF,  unitDiv),
@@ -3334,7 +3374,8 @@
             // 各ページの期末日を normDate で直接取得し、全データを日付キーで統合する。
             // buildFinTable が「累積→単独換算（Q2=6M-3M, Q3=9M-6M, Q4=12M-9M）」を行う。
 
-            // 1ページ分の四半期 P&L を解析するヘルパー（日付直接利用）
+            // 1ページ分の四半期 P&L を解析するヘルパー
+            // Format A/B 自動判定: 同一日付が 3 行以上なら FY末日+四半期オフセット、それ以外は直接利用
             const parseQPage = (data, label) => {
                 if (!data.rows.length) {
                     console.log(`[IRBank] /${label}: データなし`);
@@ -3342,18 +3383,20 @@
                 }
                 const qH = data.headers;
                 const iqYear   = findCol(qH, '年度', '決算期', '期末', '決算', '^期$');
+                const iqQtr    = findCol(qH, '四半期');
                 const iqRev    = findCol(qH, '売上高', '売上');
                 const iqOpInc  = findCol(qH, '^営利$', '営業益', '営業利益');
                 const iqNetInc = findCol(qH, '^純利$', '純利益', '当期純利益', '当期利益');
                 const iqEPS    = findCol(qH, '^EPS$', '一株益');
                 const iqOpMgn  = findCol(qH, '営利率', '営業利益率');
-                console.log(`[IRBank] /${label} cols:`, JSON.stringify({ iqYear, iqRev, iqOpInc, iqNetInc }), 'headers:', JSON.stringify(qH.slice(0, 6)));
+                console.log(`[IRBank] /${label} cols:`, JSON.stringify({ iqYear, iqQtr, iqRev, iqOpInc, iqNetInc }), 'headers:', JSON.stringify(qH.slice(0, 6)));
 
+                const dIdx    = iqYear >= 0 ? iqYear : 0;
+                const resolve = resolveQDate(data.rows, dIdx, iqQtr);
                 const rows = [];
                 const used = new Set();
                 for (const { cells, unitDiv } of data.rows) {
-                    const dIdx = iqYear >= 0 ? iqYear : 0;
-                    const d = normDate(cells[dIdx]?.trim() || '');
+                    const d = resolve(cells);
                     if (!d || d.length < 4 || used.has(d)) continue;
                     used.add(d);
 
