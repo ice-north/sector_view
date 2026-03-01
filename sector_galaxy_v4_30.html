@@ -3151,12 +3151,29 @@
                     const unitDiv     = isThousands ? 1e3 : 1;
                     console.log(`[IRBank] /${path}:`, JSON.stringify(headers), isThousands ? 'unit=千円' : 'unit=百万円');
 
-                    // tbody 行をパース（カンマのみ除去。ダッシュ類は getNum で null 扱い）
+                    // tbody 行をパース（rowspan 展開対応。カンマのみ除去。ダッシュ類は getNum で null 扱い）
                     const rows = [];
+                    const spanInfo = {};  // colIdx → { text, remaining }
+
                     for (const tr of tbl.querySelectorAll('tbody tr')) {
-                        const cells = Array.from(tr.querySelectorAll('td, th')).map(c =>
-                            c.textContent.trim().replace(/,/g, '')
-                        );
+                        const tds = Array.from(tr.querySelectorAll('td, th'));
+                        const cells = [];
+                        let tdIdx = 0;
+                        const colCount = Math.max(headers.length, tds.length +
+                            Object.values(spanInfo).filter(s => s?.remaining > 0).length);
+
+                        for (let col = 0; col < colCount; col++) {
+                            if (spanInfo[col]?.remaining > 0) {
+                                cells.push(spanInfo[col].text);
+                                spanInfo[col].remaining--;
+                            } else if (tdIdx < tds.length) {
+                                const td = tds[tdIdx++];
+                                const text = td.textContent.trim().replace(/,/g, '');
+                                cells.push(text);
+                                const rs = parseInt(td.getAttribute('rowspan') || '1', 10);
+                                spanInfo[col] = rs > 1 ? { text, remaining: rs - 1 } : null;
+                            }
+                        }
                         if (cells.length >= 2) rows.push({ cells, unitDiv });
                     }
                     return { headers, rows };
@@ -3247,7 +3264,7 @@
                 if (m2) return `${m2[1]}/${m2[2].padStart(2, '0')}`;
                 const m3 = d.match(/^(\d{4})-(\d{2})/);
                 if (m3) return `${m3[1]}/${m3[2]}`;
-                return d;
+                return null;  // 日付として認識できない文字列は null を返す
             };
 
             // ── 月オフセット加算ヘルパー（CF/四半期ページ共用）──────────────
