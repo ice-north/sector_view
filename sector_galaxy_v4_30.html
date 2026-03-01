@@ -3457,7 +3457,10 @@
             }
 
             const quarterRows = Object.values(allQMap);
-            const hasRealQuarters = q1Rows.length > 0 && (q2Rows.length > 0 || q3Rows.length > 0);
+            // Format A: /quarter に全四半期が含まれる場合 q2/q3 が 404 でも true にする
+            // → 年次(/results)の日付に存在しない行が 1 つでもあれば「実四半期あり」
+            const annualDates = new Set(result.map(r => r.date));
+            const hasRealQuarters = [...q1Rows, ...q2Rows, ...q3Rows].some(r => !annualDates.has(r.date));
             console.log('[IRBank] 取得完了 rows:', result.length,
                 '/ Q1:', q1Rows.length, 'Q2:', q2Rows.length, 'Q3:', q3Rows.length,
                 '/ 統合:', quarterRows.length, '会社名:', _companyName);
