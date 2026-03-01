@@ -3151,9 +3151,16 @@
                     const unitDiv     = isThousands ? 1e3 : 1;
                     console.log(`[IRBank] /${path}:`, JSON.stringify(headers), isThousands ? 'unit=千円' : 'unit=百万円');
 
-                    // tbody 行をパース（rowspan 展開対応。カンマのみ除去。ダッシュ類は getNum で null 扱い）
+                    // tbody 行をパース（rowspan 展開対応。<br>区切り複数値対応。カンマのみ除去）
                     const rows = [];
                     const spanInfo = {};  // colIdx → { text, remaining }
+
+                    // <br> を '\x01' に置換してから textContent を返すヘルパー
+                    const getCellText = (td) => {
+                        const clone = td.cloneNode(true);
+                        clone.querySelectorAll('br').forEach(br => br.replaceWith('\x01'));
+                        return clone.textContent.trim().replace(/,/g, '');
+                    };
 
                     for (const tr of tbl.querySelectorAll('tbody tr')) {
                         const tds = Array.from(tr.querySelectorAll('td, th'));
@@ -3168,7 +3175,7 @@
                                 spanInfo[col].remaining--;
                             } else if (tdIdx < tds.length) {
                                 const td = tds[tdIdx++];
-                                const text = td.textContent.trim().replace(/,/g, '');
+                                const text = getCellText(td);
                                 cells.push(text);
                                 const rs = parseInt(td.getAttribute('rowspan') || '1', 10);
                                 spanInfo[col] = rs > 1 ? { text, remaining: rs - 1 } : null;
@@ -3246,12 +3253,16 @@
             const getNum = (cells, i, unitDiv) => {
                 if (i < 0 || i >= cells.length) return null;
                 const raw = (cells[i] ?? '').trim();
-                if (!raw || /^[-－ー—–−]$/.test(raw)) return null;  // 欠損値記号
-                const v = parseFloat(raw);
+                if (!raw) return null;
+                // <br>区切りで複数値あり（単独値\x01累積値）→ 最後の値（累積値）を使用
+                const parts = raw.split('\x01').map(s => s.trim()).filter(Boolean);
+                const val = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+                if (!val || /^[-－ー—–−]$/.test(val)) return null;  // 欠損値記号
+                const v = parseFloat(val);
                 if (isNaN(v)) return null;
-                if (raw.includes('兆')) return v * 1_000_000;  // 1兆 = 1,000,000 百万円
-                if (raw.includes('億')) return v * 100;         // 1億 = 100 百万円
-                if (raw.includes('万')) return v * 0.01;        // 1万 = 0.01 百万円
+                if (val.includes('兆')) return v * 1_000_000;  // 1兆 = 1,000,000 百万円
+                if (val.includes('億')) return v * 100;         // 1億 = 100 百万円
+                if (val.includes('万')) return v * 0.01;        // 1万 = 0.01 百万円
                 return v / unitDiv;  // 単位なし → ヘッダー由来の unitDiv で割る
             };
 
@@ -3429,7 +3440,9 @@
 
                     const safeF = (idx) => {
                         if (idx < 0 || idx >= cells.length) return null;
-                        const v = parseFloat(cells[idx]);
+                        const parts = (cells[idx] ?? '').split('\x01').map(s => s.trim()).filter(Boolean);
+                        const val = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+                        const v = parseFloat(val || '');
                         return isNaN(v) ? null : v;
                     };
                     rows.push({
