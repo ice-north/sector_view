@@ -3267,13 +3267,15 @@
             };
 
             // 日付正規化: "2024年3月" / "2024/3" / "2024-03" → "2024/03"
+            // <br>由来の \x01 など制御文字を除去してからマッチ（年度セルに<br>が含まれる場合の対策）
             const normDate = (d) => {
                 if (!d) return null;
-                const m1 = d.match(/(\d{4})年(\d{1,2})月/);
+                const s = d.replace(/[\x00-\x1f]/g, '');  // 制御文字（\x01含む）を除去
+                const m1 = s.match(/(\d{4})年(\d{1,2})月/);
                 if (m1) return `${m1[1]}/${m1[2].padStart(2, '0')}`;
-                const m2 = d.match(/^(\d{4})\/(\d{1,2})/);
+                const m2 = s.match(/^(\d{4})\/(\d{1,2})/);
                 if (m2) return `${m2[1]}/${m2[2].padStart(2, '0')}`;
-                const m3 = d.match(/^(\d{4})-(\d{2})/);
+                const m3 = s.match(/^(\d{4})-(\d{2})/);
                 if (m3) return `${m3[1]}/${m3[2]}`;
                 return null;  // 日付として認識できない文字列は null を返す
             };
