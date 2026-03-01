@@ -3392,6 +3392,16 @@
                 console.log(`[IRBank] /${label} cols:`, JSON.stringify({ iqYear, iqQtr, iqRev, iqOpInc, iqNetInc }), 'headers:', JSON.stringify(qH.slice(0, 6)));
 
                 const dIdx    = iqYear >= 0 ? iqYear : 0;
+                // Format A/B 判定ログ
+                const _dbgCnt = {};
+                for (const {cells} of data.rows) {
+                    const d = normDate(cells[dIdx]?.trim() || '') || '';
+                    if (d) _dbgCnt[d] = (_dbgCnt[d] || 0) + 1;
+                }
+                const _dbgMax = Math.max(0, ...Object.values(_dbgCnt));
+                console.log(`[IRBank] /${label} Format${_dbgMax >= 3 ? 'A' : 'B'} maxCnt=${_dbgMax} iqQtr=${iqQtr} rawRows=${data.rows.length}`);
+                // 最初の3行の生セルをログ（四半期ラベル確認用）
+                console.log(`[IRBank] /${label} first3raw:`, data.rows.slice(0, 3).map(({cells}) => cells.slice(0, 3).join('|')).join('  //  '));
                 const resolve = resolveQDate(data.rows, dIdx, iqQtr);
                 const rows = [];
                 const used = new Set();
@@ -3414,7 +3424,7 @@
                         opMgn:  safeF(iqOpMgn),
                     });
                 }
-                console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows →', rows.slice(0, 3).map(r => r.date));
+                console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows → dates:', rows.map(r => r.date).join(', '));
                 return rows;
             };
 
@@ -3464,6 +3474,8 @@
             console.log('[IRBank] 取得完了 rows:', result.length,
                 '/ Q1:', q1Rows.length, 'Q2:', q2Rows.length, 'Q3:', q3Rows.length,
                 '/ 統合:', quarterRows.length, '会社名:', _companyName);
+            console.log('[IRBank] allQMap dates:', Object.keys(allQMap).sort().join(', '));
+            console.log('[IRBank] q1Rows dates:', q1Rows.map(r => r.date).join(', '));
             return result.length ? { rows: result, quarterRows, hasRealQuarters, companyName: _companyName } : null;
         }
 
