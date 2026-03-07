@@ -10,10 +10,15 @@ import threading
 from datetime import datetime
 
 import os
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 import yfinance as yf
 import feedparser
+try:
+    import anthropic as _anthropic
+    _HAS_ANTHROPIC = True
+except ImportError:
+    _HAS_ANTHROPIC = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR)
@@ -498,6 +503,63 @@ def api_news():
             "updated": datetime.now().isoformat(),
         })
     except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    """Claude AIによる銘柄分析"""
+    if not _HAS_ANTHROPIC:
+        return jsonify({"status": "error", "message": "anthropic ライブラリがインストールされていません。pip install anthropic を実行してください。"}), 503
+
+    try:
+        data = request.get_json(force=True) or {}
+        name    = data.get("name", data.get("ticker", "不明"))
+        ticker  = data.get("ticker", "")
+        price   = data.get("price")
+        per     = data.get("per")
+        pbr     = data.get("pbr")
+        eps     = data.get("eps")
+        roe     = data.get("roe")
+        op_mgn  = data.get("opMgn")
+        rev_yoy = data.get("revYoY")
+        net_yoy = data.get("netYoY")
+        fcf     = data.get("fcf")
+        rev     = data.get("rev")
+        op_inc  = data.get("opInc")
+        net_inc = data.get("netInc")
+        eq_ratio= data.get("eqRatio")
+        perf1m  = data.get("perf1m")
+        perf3m  = data.get("perf3m")
+        perf1y  = data.get("perf1y")
+
+        def fmt(v, unit="", decimals=1):
+            if v is None:
+                return "不明"
+            return f"{v:.{decimals}f}{unit}"
+
+        prompt = f"""以下は日本株「{name}」（{ticker}）の財務データです。投資家向けに簡潔な日本語で分析してください（150字以内）。
+
+株価: {fmt(price, '円', 0)}  PER: {fmt(per, '倍')}  PBR: {fmt(pbr, '倍', 2)}
+EPS: {fmt(eps, '円')}  ROE: {fmt(roe, '%')}  営業利益率: {fmt(op_mgn, '%')}
+売上高: {fmt(rev, '億円')}  営業利益: {fmt(op_inc, '億円')}  純利益: {fmt(net_inc, '億円')}
+自己資本比率: {fmt(eq_ratio, '%')}  FCF: {fmt(fcf, '億円')}
+売上成長率(YoY): {fmt(rev_yoy, '%')}  純利益成長率(YoY): {fmt(net_yoy, '%')}
+株価パフォーマンス: 1ヶ月{fmt(perf1m, '%')} / 3ヶ月{fmt(perf3m, '%')} / 1年{fmt(perf1y, '%')}
+
+強み・弱み・注目点を簡潔にまとめてください。"""
+
+        client = _anthropic.Anthropic()
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        analysis = message.content[0].text if message.content else "分析結果がありません。"
+        return jsonify({"status": "ok", "analysis": analysis})
+
+    except Exception as e:
+        print(f"AI分析エラー: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
