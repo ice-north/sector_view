@@ -951,12 +951,11 @@
         }
 
         .period-selector {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            grid-template-rows: repeat(2, 1fr);
-            gap: 0.6rem;
+            display: flex;
+            flex-direction: row;
+            gap: 0.5rem;
             width: 100%;
-            max-width: 600px;
+            max-width: 480px;
         }
 
         .period-btn {
@@ -1486,10 +1485,6 @@
                     <button class="period-btn" data-period="3m">3ヶ月</button>
                     <button class="period-btn" data-period="6m">6ヶ月</button>
                     <button class="period-btn" data-period="1y">1年</button>
-                    <button class="period-btn" data-period="3y">3年</button>
-                    <button class="period-btn" data-period="5y">5年</button>
-                    <button class="period-btn" data-period="10y">10年</button>
-                    <button class="period-btn" data-period="max">全期間</button>
                 </div>
             </div>
         </div>
@@ -3221,6 +3216,7 @@
             const iDate   = findCol(plH, '年度', '決算期', '期末', '決算', '^期$');
             const iRev    = findCol(plH, '売上高', '売上');
             const iOpInc  = findCol(plH, '^営利$', '営業益', '営業利益');
+            const iOrdInc = findCol(plH, '^経常$', '経常利益', '経常利益');
             const iNetInc = findCol(plH, '^純利$', '純利益', '当期純利益', '当期利益');
             const iEqRat  = findCol(plH, '自己資本比率');
             // irbank が P&L テーブルに直接提供する計算済み指標
@@ -3357,9 +3353,10 @@
                 if (!dRaw || dRaw.length < 4) continue;
                 const d = normDate(dRaw) || dRaw;  // 正規化した日付キーで CF/BS を検索
 
-                const rev    = getNum(cells, iRev,    unitDiv);
-                const opInc  = getNum(cells, iOpInc,  unitDiv);
-                const netInc = getNum(cells, iNetInc, unitDiv);
+                const rev     = getNum(cells, iRev,     unitDiv);
+                const opInc   = getNum(cells, iOpInc,   unitDiv);
+                const ordInc  = getNum(cells, iOrdInc,  unitDiv);
+                const netInc  = getNum(cells, iNetInc,  unitDiv);
                 // P&L に自己資本比率がない場合は BS から取得、それもなければ純資産÷総資産で計算
                 const plEqRat = iEqRat >= 0 ? parseFloat(cells[iEqRat]) : NaN;
 
@@ -3380,7 +3377,7 @@
                     return isNaN(v) ? null : v;
                 };
                 result.push({
-                    date: d, rev, opInc, netInc,
+                    date: d, rev, opInc, ordInc, netInc,
                     assets, equity, eqRatio,
                     shares: bs.shares ?? null,
                     opCF:   cf.opCF  ?? null,
@@ -3416,6 +3413,7 @@
                 const iqQtr    = findCol(qH, '四半期');
                 const iqRev    = findCol(qH, '売上高', '売上');
                 const iqOpInc  = findCol(qH, '^営利$', '営業益', '営業利益');
+                const iqOrdInc = findCol(qH, '^経常$', '経常利益');
                 const iqNetInc = findCol(qH, '^純利$', '純利益', '当期純利益', '当期利益');
                 const iqEPS    = findCol(qH, '^EPS$', '一株益');
                 const iqOpMgn  = findCol(qH, '営利率', '営業利益率');
@@ -3448,10 +3446,11 @@
                         return isNaN(v) ? null : v;
                     };
                     rows.push({
-                        date:   d,
-                        rev:    getNum(cells, iqRev,    unitDiv),
-                        opInc:  getNum(cells, iqOpInc,  unitDiv),
-                        netInc: getNum(cells, iqNetInc, unitDiv),
+                        date:    d,
+                        rev:     getNum(cells, iqRev,    unitDiv),
+                        opInc:   getNum(cells, iqOpInc,  unitDiv),
+                        ordInc:  getNum(cells, iqOrdInc, unitDiv),
+                        netInc:  getNum(cells, iqNetInc, unitDiv),
                         eps:    safeF(iqEPS),
                         opMgn:  safeF(iqOpMgn),
                     });
@@ -3481,10 +3480,11 @@
                 const eqRatio = bs.eqRatio ?? (assets && equity
                     ? parseFloat((equity / assets * 100).toFixed(1)) : null);
                 allQMap[qRow.date] = {
-                    date:   qRow.date,
-                    rev:    qRow.rev,
-                    opInc:  qRow.opInc,
-                    netInc: qRow.netInc,
+                    date:    qRow.date,
+                    rev:     qRow.rev,
+                    opInc:   qRow.opInc,
+                    ordInc:  qRow.ordInc,
+                    netInc:  qRow.netInc,
                     assets, equity, eqRatio,
                     shares: bs.shares ?? null,
                     opCF:   cf.opCF  ?? null,
@@ -3672,15 +3672,16 @@
                     // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
                     rows.forEach((r, i) => {
                         if (i === 0) {
-                            r.qRev = r.rev; r.qOpInc = r.opInc; r.qNetInc = r.netInc;
+                            r.qRev = r.rev; r.qOpInc = r.opInc; r.qOrdInc = r.ordInc; r.qNetInc = r.netInc;
                             r.qOpCF = r.opCF; r.qInvCF = r.invCF; r.qFinCF = r.finCF;
                         } else {
                             const prev = rows[i - 1];
                             const isNewFY = (r.rev !== null && prev.rev !== null && r.rev < prev.rev);
                             const d = (a, b) => (a !== null && b !== null) ? a - b : null;
-                            r.qRev    = isNewFY ? r.rev    : d(r.rev,    prev.rev);
-                            r.qOpInc  = isNewFY ? r.opInc  : d(r.opInc,  prev.opInc);
-                            r.qNetInc = isNewFY ? r.netInc : d(r.netInc, prev.netInc);
+                            r.qRev     = isNewFY ? r.rev    : d(r.rev,    prev.rev);
+                            r.qOpInc   = isNewFY ? r.opInc  : d(r.opInc,  prev.opInc);
+                            r.qOrdInc  = isNewFY ? r.ordInc : d(r.ordInc, prev.ordInc);
+                            r.qNetInc  = isNewFY ? r.netInc : d(r.netInc, prev.netInc);
                             // CF: Q4行は通期の年間値をそのまま表示（前行がQ3でCF=nullでも壊れない）
                             // Q1/Q2/Q3 は /cf が四半期データを持つ場合のみ差分、なければ null → —
                             const isQ4row = getQLabel(r.date) === 'Q4';
@@ -3713,6 +3714,7 @@
                             <td style="color:${isQ4?'#88aaff':'#555'};font-size:0.8em;text-align:center;">${qLabel}</td>
                             <td class="group-sep">${m(r.qRev)}</td>
                             <td>${m(r.qOpInc)}</td>
+                            <td>${m(r.qOrdInc)}</td>
                             <td>${m(r.qNetInc)}</td>
                             <td class="group-sep">${m(r.qOpCF)}</td>
                             <td>${m(r.qInvCF)}</td>
@@ -3731,13 +3733,13 @@
                             <thead>
                               <tr class="group-header">
                                 <th colspan="2"></th>
-                                <th colspan="3" class="group-sep" style="text-align:center;color:#00cc88;border-bottom:1px solid #1e1e1e;">─── 損益（単独） ───</th>
+                                <th colspan="4" class="group-sep" style="text-align:center;color:#00cc88;border-bottom:1px solid #1e1e1e;">─── 損益（単独） ───</th>
                                 <th colspan="4" class="group-sep" style="text-align:center;color:#ffaa44;border-bottom:1px solid #1e1e1e;">─── キャッシュフロー（単独） ───</th>
                                 <th colspan="3" class="group-sep" style="text-align:center;color:#5599ff;border-bottom:1px solid #1e1e1e;">─── 財政状態（Q4） ───</th>
                               </tr>
                               <tr>
                                 <th>期末</th><th>Q</th>
-                                <th class="group-sep">売上高</th><th>営業利益</th><th>純利益</th>
+                                <th class="group-sep">売上高</th><th>営業利益</th><th>経常利益</th><th>純利益</th>
                                 <th class="group-sep">営業CF</th><th>投資CF</th><th>財務CF</th><th>現金等</th>
                                 <th class="group-sep">総資産</th><th>純資産</th><th>自己資本比率</th>
                               </tr>
