@@ -1330,6 +1330,156 @@
             font-size: 1rem;
             line-height: 1.8;
         }
+
+        /* ─── マクロ環境パネル ─── */
+        #macro-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px 4px;
+            margin-top: 8px;
+            padding: 5px 8px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid #1a1a1a;
+            border-radius: 6px;
+            max-width: 820px;
+        }
+        .macro-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.015);
+            border: 1px solid #1e1e1e;
+            font-family: 'Courier New', monospace;
+            white-space: nowrap;
+            cursor: default;
+            transition: border-color 0.2s;
+        }
+        .macro-item:hover { border-color: #333; }
+        .macro-label {
+            color: #505050;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .macro-price { color: #bbb; font-weight: 700; font-size: 0.72rem; }
+        .macro-ch {
+            font-size: 0.64rem;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+        .macro-ch.pos { color: #00ff88; }
+        .macro-ch.neg { color: #ff4444; }
+        .macro-ch.neu { color: #555; }
+
+        /* ─── セクター内銘柄比較パネル ─── */
+        #sector-compare-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 280px;
+            max-height: 44vh;
+            background: rgba(4, 4, 14, 0.97);
+            border-top: 1px solid #252535;
+            z-index: 500;
+            display: none;
+            flex-direction: column;
+            backdrop-filter: blur(24px);
+            box-shadow: 0 -10px 50px rgba(0,0,0,0.85);
+        }
+        #sector-compare-panel.visible { display: flex; }
+        .scp-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 14px;
+            border-bottom: 1px solid #1a1a1a;
+            flex-shrink: 0;
+            background: rgba(255,255,255,0.015);
+        }
+        .scp-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #ccc;
+        }
+        .scp-meta {
+            font-size: 0.72rem;
+            color: #666;
+            margin-left: 10px;
+        }
+        .scp-close {
+            background: none;
+            border: 1px solid #2a2a2a;
+            color: #666;
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+        .scp-close:hover { border-color: #ff4444; color: #ff4444; }
+        .scp-body { overflow-x: auto; overflow-y: auto; flex: 1; }
+        .scp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.74rem;
+            min-width: 680px;
+        }
+        .scp-table th {
+            padding: 5px 12px;
+            text-align: right;
+            font-size: 0.62rem;
+            font-weight: 700;
+            color: #484858;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid #1a1a1a;
+            background: rgba(255,255,255,0.02);
+            position: sticky;
+            top: 0;
+            white-space: nowrap;
+            text-transform: uppercase;
+        }
+        .scp-table th:first-child { text-align: left; padding-left: 14px; }
+        .scp-table td {
+            padding: 7px 12px;
+            text-align: right;
+            border-bottom: 1px solid #0e0e1a;
+            color: #ccc;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        .scp-table td:first-child { text-align: left; padding-left: 14px; }
+        .scp-table tr:hover td { background: rgba(255,255,255,0.03); }
+        .scp-name { font-weight: 600; color: #ddd; font-size: 0.78rem; }
+        .scp-code { font-size: 0.62rem; color: #454555; margin-top: 1px; font-family: monospace; }
+        .scp-pos { color: #00ff88; font-weight: 700; }
+        .scp-neg { color: #ff4444; font-weight: 700; }
+        .scp-neu { color: #555; }
+        .scp-loading { color: #303040; font-style: italic; font-size: 0.68rem; }
+        .scp-analyze-btn {
+            background: rgba(0, 80, 220, 0.15);
+            border: 1px solid rgba(0, 80, 220, 0.4);
+            color: #4477ee;
+            padding: 3px 9px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.64rem;
+            font-weight: 700;
+            transition: all 0.15s;
+            letter-spacing: 0.03em;
+        }
+        .scp-analyze-btn:hover {
+            background: rgba(0, 80, 220, 0.35);
+            color: #88aaff;
+            border-color: #5588ff;
+        }
     </style>
 </head>
 <body>
@@ -1338,6 +1488,16 @@
             <header>
                 <h1>セクター資金移動マップ</h1>
                 <div class="date-range" id="date-range-display">リアルタイムデータ</div>
+                <div id="macro-panel">
+                    <div class="macro-item" title="米ドル／円"><span class="macro-label">USD/JPY</span><span class="macro-price" id="mp-usdjpy">--</span><span class="macro-ch neu" id="mc-usdjpy">--</span></div>
+                    <div class="macro-item" title="ユーロ／円"><span class="macro-label">EUR/JPY</span><span class="macro-price" id="mp-eurjpy">--</span><span class="macro-ch neu" id="mc-eurjpy">--</span></div>
+                    <div class="macro-item" title="豪ドル／円"><span class="macro-label">AUD/JPY</span><span class="macro-price" id="mp-audjpy">--</span><span class="macro-ch neu" id="mc-audjpy">--</span></div>
+                    <div class="macro-item" title="米10年国債利回り"><span class="macro-label">米10年債</span><span class="macro-price" id="mp-tnx">--</span><span class="macro-ch neu" id="mc-tnx">--</span></div>
+                    <div class="macro-item" title="恐怖指数 VIX"><span class="macro-label">VIX</span><span class="macro-price" id="mp-vix">--</span><span class="macro-ch neu" id="mc-vix">--</span></div>
+                    <div class="macro-item" title="WTI原油先物 (USD)"><span class="macro-label">原油WTI</span><span class="macro-price" id="mp-cl">--</span><span class="macro-ch neu" id="mc-cl">--</span></div>
+                    <div class="macro-item" title="金先物 (USD/oz)"><span class="macro-label">金</span><span class="macro-price" id="mp-gc">--</span><span class="macro-ch neu" id="mc-gc">--</span></div>
+                    <div class="macro-item" title="銅先物 (USD/lb) ─ 景気先行指標"><span class="macro-label">銅</span><span class="macro-price" id="mp-hg">--</span><span class="macro-ch neu" id="mc-hg">--</span></div>
+                </div>
             </header>
 
             <div class="galaxy-container">
@@ -2092,7 +2252,13 @@
                         }
                     }, 300);
                 });
-                
+
+                // クリックで比較テーブルを表示
+                sectorEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showSectorCompare(sector);
+                });
+
                 galaxy.appendChild(sectorEl);
             });
         }
@@ -2492,19 +2658,25 @@
             });
         }
 
-        // 市場指数を取得（全期間 Chart v8 API で統一。Yahoo Finance v7 quote は 401 のため廃止）
+        // 市場指数 + マクロ指標を取得（全期間 Chart v8 API で統一。Yahoo Finance v7 quote は 401 のため廃止）
         async function fetchMarketFromYahoo(period = '1m') {
-            const idxSymbols = ['^N225', '1306.T', '2516.T', 'JPY=X'];
-            {
-                // 全期間共通: Chart v8 API（1d は直近2終値で前日比）
-                const changes = await fetchPeriodChanges(idxSymbols, period);
-                return {
-                    nikkei: changes['^N225'],
-                    topix:  changes['1306'],
-                    growth: changes['2516'],
-                    usdjpy: changes['JPY=X'],
-                };
-            }
+            const idxSymbols = ['^N225', '1306.T', '2516.T', 'JPY=X',
+                                'EURJPY=X', 'AUDJPY=X', '^TNX', '^VIX', 'CL=F', 'GC=F', 'HG=F'];
+            // 全期間共通: Chart v8 API（1d は直近2終値で前日比）
+            const changes = await fetchPeriodChanges(idxSymbols, period);
+            return {
+                nikkei: changes['^N225'],
+                topix:  changes['1306'],
+                growth: changes['2516'],
+                usdjpy: changes['JPY=X'],
+                eurjpy: changes['EURJPY=X'],
+                audjpy: changes['AUDJPY=X'],
+                tnx:    changes['^TNX'],
+                vix:    changes['^VIX'],
+                cl:     changes['CL=F'],
+                gc:     changes['GC=F'],
+                hg:     changes['HG=F'],
+            };
         }
 
         // リアルタイム株価 + 市場指数を一括更新
@@ -2550,7 +2722,7 @@
             }
         }
 
-        // 市場指数を UI に反映（market-indicators パネルは削除済みのため null-safe）
+        // 市場指数 + マクロパネルを UI に反映
         const $ = id => document.getElementById(id);
         function applyMarketData(data) {
             if (data.nikkei) {
@@ -2560,6 +2732,96 @@
                 if (changeEl) { changeEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`; changeEl.className = `center-value${c < 0 ? ' negative' : ''}`; }
                 $('center-circle').className = `center-circle${c < 0 ? ' negative-market' : ''}`;
             }
+
+            // ─── マクロパネル更新 ───
+            const setMacro = (priceId, chId, d, fmt) => {
+                if (!d) return;
+                const pe = $(priceId), ce = $(chId);
+                if (pe && d.price != null) pe.textContent = fmt(d.price);
+                if (ce && d.change != null) {
+                    const c = d.change;
+                    ce.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(2)}%`;
+                    ce.className = `macro-ch ${c > 0.005 ? 'pos' : c < -0.005 ? 'neg' : 'neu'}`;
+                }
+            };
+            setMacro('mp-usdjpy', 'mc-usdjpy', data.usdjpy, v => v.toFixed(2));
+            setMacro('mp-eurjpy', 'mc-eurjpy', data.eurjpy, v => v.toFixed(2));
+            setMacro('mp-audjpy', 'mc-audjpy', data.audjpy, v => v.toFixed(2));
+            setMacro('mp-tnx',    'mc-tnx',    data.tnx,    v => `${v.toFixed(3)}%`);
+            setMacro('mp-vix',    'mc-vix',    data.vix,    v => v.toFixed(2));
+            setMacro('mp-cl',     'mc-cl',     data.cl,     v => `$${v.toFixed(1)}`);
+            setMacro('mp-gc',     'mc-gc',     data.gc,     v => `$${Math.round(v).toLocaleString()}`);
+            setMacro('mp-hg',     'mc-hg',     data.hg,     v => `$${v.toFixed(3)}`);
+        }
+
+        // ============================================================
+        // セクター内銘柄比較パネル
+        // ============================================================
+        function closeSectorCompare() {
+            document.getElementById('sector-compare-panel').classList.remove('visible');
+        }
+
+        async function showSectorCompare(sector) {
+            const panel  = document.getElementById('sector-compare-panel');
+            const tbody  = document.getElementById('scp-tbody');
+            const title  = document.getElementById('scp-title');
+            const meta   = document.getElementById('scp-meta');
+            const colHdr = document.getElementById('scp-period-col');
+
+            // タイトル・期間ラベル
+            title.textContent = `📊 ${sector.name} ─ 銘柄比較`;
+            const chSign = sector.value >= 0 ? '+' : '';
+            const chCol  = sector.value >= 0 ? '#00ff88' : '#ff4444';
+            meta.innerHTML = `<span style="color:${chCol};font-weight:700;">${chSign}${sector.value.toFixed(1)}%</span>
+                <span style="margin-left:6px;">(${currentPeriod})</span>`;
+            if (colHdr) colHdr.textContent = currentPeriod;
+
+            // 即時描画（名前・株価・時価総額・当期変化率は持っている）
+            const stocks = sector.stocks;
+            tbody.innerHTML = stocks.map(stock => {
+                const cc  = stock.change > 0 ? 'scp-pos' : stock.change < 0 ? 'scp-neg' : 'scp-neu';
+                const sgn = stock.change > 0 ? '+' : '';
+                const priceTxt = (stock.price && stock.price > 0)
+                    ? `¥${Math.round(stock.price).toLocaleString()}`
+                    : '<span style="color:#333">--</span>';
+                return `<tr>
+                    <td>
+                        <div class="scp-name">${stock.name}</div>
+                        <div class="scp-code">${stock.code}.T | 時価総額 ${stock.cap.toFixed(2)}兆円</div>
+                    </td>
+                    <td style="font-family:monospace;">${priceTxt}</td>
+                    <td style="color:#666;">${stock.cap.toFixed(2)}兆</td>
+                    <td><span class="${cc}">${sgn}${stock.change.toFixed(1)}%</span></td>
+                    <td id="scp-1m-${stock.code}" class="scp-loading">…</td>
+                    <td id="scp-2y-${stock.code}" class="scp-loading">…</td>
+                    <td><button class="scp-analyze-btn"
+                        onclick="document.getElementById('stock-code-input').value='${stock.code}';analyzeStock()">
+                        分析 →
+                    </button></td>
+                </tr>`;
+            }).join('');
+
+            panel.classList.add('visible');
+
+            // 1ヶ月・2年変化率を非同期取得して埋める
+            const tickers = stocks.map(s => `${s.code}.T`);
+            const [res1m, res2y] = await Promise.all([
+                fetchPeriodChanges(tickers, '1m'),
+                fetchPeriodChanges(tickers, '2y'),
+            ]);
+
+            stocks.forEach(stock => {
+                const fillCell = (elId, d) => {
+                    const el = document.getElementById(elId);
+                    if (!el) return;
+                    if (!d) { el.innerHTML = '<span class="scp-neu">--</span>'; return; }
+                    const c   = d.change;
+                    const cls = c > 0 ? 'scp-pos' : c < 0 ? 'scp-neg' : 'scp-neu';
+                    el.innerHTML = `<span class="${cls}">${c >= 0 ? '+' : ''}${c.toFixed(1)}%</span>`;
+                };
+                fillCell(`scp-1m-${stock.code}`, res1m[stock.code]);
+                fillCell(`scp-2y-${stock.code}`, res2y[stock.code]);
+            });
         }
 
         // ============================================================
@@ -3087,6 +3349,15 @@
 
         // 起動時に Yahoo Finance 疎通テスト
         checkYahooFinance().then(online => setServerUI(online));
+
+        // 比較パネル外クリックで閉じる
+        document.addEventListener('click', (e) => {
+            const panel = document.getElementById('sector-compare-panel');
+            if (panel && panel.classList.contains('visible') &&
+                !panel.contains(e.target) && !e.target.closest('.sector')) {
+                panel.classList.remove('visible');
+            }
+        });
         
         // 中心円ホバー
         document.getElementById('center-circle').addEventListener('mouseenter', (e) => {
@@ -4098,6 +4369,38 @@
             }
         }
     </script>
+
+    <!-- セクター内銘柄比較パネル -->
+    <div id="sector-compare-panel">
+        <div class="scp-header">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                <span class="scp-title" id="scp-title">📊 セクター内銘柄比較</span>
+                <span class="scp-meta" id="scp-meta"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                <span style="font-size:0.62rem;color:#404050;">クリックで個別分析 →</span>
+                <button class="scp-close" onclick="closeSectorCompare()" title="閉じる">✕</button>
+            </div>
+        </div>
+        <div class="scp-body">
+            <table class="scp-table">
+                <thead>
+                    <tr>
+                        <th>銘柄</th>
+                        <th>株価</th>
+                        <th>時価総額</th>
+                        <th id="scp-period-col">当期</th>
+                        <th>1ヶ月</th>
+                        <th>2年</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="scp-tbody">
+                    <tr><td colspan="7" style="text-align:center;color:#333;padding:16px;">セクターをクリックすると銘柄比較が表示されます</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     <!-- 銘柄分析フルスクリーンオーバーレイ -->
     <div id="analysis-overlay" class="analysis-overlay">
