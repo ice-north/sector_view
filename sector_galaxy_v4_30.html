@@ -3574,7 +3574,8 @@
             const ibEquity = findCol(bsH, '株主資本', '純資産', '^自己資本$');
             const ibEqRat  = findCol(bsH, '自己資本比率');
             const ibShares = findCol(bsH, '株数', '発行済');
-            console.log('[IRBank] col map: BS', JSON.stringify({ ibDate, ibAssets, ibEquity, ibEqRat, ibShares }));
+            const ibDebt   = findCol(bsH, '有利子負債合計', '有利子負債', '借入金合計', '負債合計');
+            console.log('[IRBank] col map: BS', JSON.stringify({ ibDate, ibAssets, ibEquity, ibEqRat, ibShares, ibDebt }));
 
             // 数値取得ヘルパー（irbank の億/兆/万表記を百万円に変換）
             // 数値取得ヘルパー: irbank の億/兆/万表記 → 百万円に変換
@@ -3674,6 +3675,7 @@
                     equity:  getNum(cells, ibEquity, unitDiv),
                     eqRatio: !isNaN(eqRatRaw) ? eqRatRaw : null,
                     shares:  ibShares >= 0 ? (parseFloat(cells[ibShares]) || null) : null,
+                    debt:    getNum(cells, ibDebt,   unitDiv),
                 };
             }
 
@@ -3713,6 +3715,7 @@
                     date: d, rev, opInc, ordInc, netInc,
                     assets, equity, eqRatio,
                     shares: bs.shares ?? null,
+                    debt:   bs.debt  ?? null,
                     opCF:   cf.opCF  ?? null,
                     invCF:  cf.invCF ?? null,
                     finCF:  cf.finCF ?? null,
@@ -3820,6 +3823,7 @@
                     netInc:  qRow.netInc,
                     assets, equity, eqRatio,
                     shares: bs.shares ?? null,
+                    debt:   bs.debt  ?? null,
                     opCF:   cf.opCF  ?? null,
                     invCF:  cf.invCF ?? null,
                     finCF:  cf.finCF ?? null,
@@ -4056,7 +4060,17 @@
                         eqRatio: latest.eqRatio,
                         revYoY:  yoy(latest.rev,    prevYr?.rev),
                         netYoY:  yoy(latest.netInc, prevYr?.netInc),
-                        fcf:     (latest.opCF !== null && latest.invCF !== null) ? latest.opCF + latest.invCF : null,
+                            fcf:     (latest.opCF !== null && latest.invCF !== null) ? latest.opCF + latest.invCF : null,
+                        opCF:    latest.opCF,
+                        cash:    latest.cash,
+                        debt:    latest.debt ?? null,
+                        netCash: (latest.cash !== null)
+                                    ? (latest.debt !== null
+                                        ? latest.cash - latest.debt
+                                        : latest.cash)   // 有利子負債非掲載の場合は現金のみ
+                                    : null,
+                        netCashHasDebt: latest.debt !== null,
+                        epsGrowth: yoy(latest.eps, prevYr?.eps),
                         date:    latest.date,
                         rev:     latest.rev,
                         opInc:   latest.opInc,
@@ -4065,7 +4079,7 @@
                 }
 
                 // 時価総額・PER・PBR を IRBank + 株価から推定
-                let estMktCap = null, estPer = null, estPbr = null;
+                let estMktCap = null, estPer = null, estPbr = null, estPeg = null;
                 if (price && fmMetrics?.eps && fmMetrics.eps !== 0) {
                     const sorted0      = [...irbankRows].sort((a, b) => b.date.localeCompare(a.date));
                     const latestRow    = sorted0[0];
@@ -4077,6 +4091,10 @@
                             estPbr = price / (latestRow.equity * 1e6 / sharesEst);
                         }
                     }
+                }
+                // PEGレシオ = PER ÷ EPS成長率(%)（成長率・PERともに正の場合のみ意味を持つ）
+                if (estPer && fmMetrics?.epsGrowth && fmMetrics.epsGrowth > 0) {
+                    estPeg = estPer / fmMetrics.epsGrowth;
                 }
 
                 aoTitle.textContent = `${rawCode}  ${name}`;
@@ -4261,7 +4279,18 @@
                             ${fmMetrics.eqRatio !== null ? `<div class="ao-metric"><span>自己資本比率</span><strong>${fmMetrics.eqRatio.toFixed !== undefined ? fmMetrics.eqRatio.toFixed(1) : fmMetrics.eqRatio}%</strong></div>` : ''}
                             ${fmMetrics.revYoY  !== null ? `<div class="ao-metric"><span>売上成長(YoY)</span><strong class="${fmMetrics.revYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.revYoY >= 0 ? '+' : ''}${fmMetrics.revYoY.toFixed(1)}%</strong></div>` : ''}
                             ${fmMetrics.netYoY  !== null ? `<div class="ao-metric"><span>純利成長(YoY)</span><strong class="${fmMetrics.netYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.netYoY >= 0 ? '+' : ''}${fmMetrics.netYoY.toFixed(1)}%</strong></div>` : ''}
-                            ${fmMetrics.fcf     !== null ? `<div class="ao-metric"><span>FCF (百万円)</span><strong>${Math.round(fmMetrics.fcf).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.epsGrowth !== null ? `<div class="ao-metric"><span>EPS成長(YoY)</span><strong class="${fmMetrics.epsGrowth >= 0 ? 'pos' : 'neg'}">${fmMetrics.epsGrowth >= 0 ? '+' : ''}${fmMetrics.epsGrowth.toFixed(1)}%</strong></div>` : ''}
+                            <div class="ao-metric-sep"></div>
+                            ${fmMetrics.opCF    !== null ? `<div class="ao-metric"><span>営業CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.opCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.opCF >= 0 ? '+' : ''}${Math.round(fmMetrics.opCF).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.fcf     !== null ? `<div class="ao-metric"><span>FCF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.fcf >= 0 ? 'pos' : 'neg'}">${fmMetrics.fcf >= 0 ? '+' : ''}${Math.round(fmMetrics.fcf).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.netCash !== null ? `<div class="ao-metric">
+                                <span>ネットキャッシュ <small style="color:#444;">(百万円)${fmMetrics.netCashHasDebt ? '' : ' ※現金のみ'}</small></span>
+                                <strong class="${fmMetrics.netCash >= 0 ? 'pos' : 'neg'}">${fmMetrics.netCash >= 0 ? '+' : ''}${Math.round(fmMetrics.netCash).toLocaleString()}</strong>
+                            </div>` : ''}
+                            ${estPeg !== null ? `<div class="ao-metric" title="PEGレシオ = PER ÷ EPS成長率。1倍未満が割安の目安">
+                                <span>PEGレシオ <small style="color:#444;">(PER÷EPS成長率)</small></span>
+                                <strong class="${estPeg < 1 ? 'pos' : estPeg > 2 ? 'neg' : ''}">${estPeg.toFixed(2)}倍</strong>
+                            </div>` : ''}
                             <div class="ao-metric" style="font-size:0.6rem;color:#444;grid-column:span 2;">財務指標: ${fmMetrics.date} 期末 (IRBank.net)</div>
                             ` : ''}
                         </div>
