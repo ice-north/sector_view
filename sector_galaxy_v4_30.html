@@ -3763,7 +3763,8 @@
                     if (d) _dbgCnt[d] = (_dbgCnt[d] || 0) + 1;
                 }
                 const _dbgMax = Math.max(0, ...Object.values(_dbgCnt));
-                console.log(`[IRBank] /${label} Format${_dbgMax >= 3 ? 'A' : 'B'} maxCnt=${_dbgMax} iqQtr=${iqQtr} rawRows=${data.rows.length}`);
+                const isFormatA = _dbgMax >= 3 && iqQtr >= 0;
+                console.log(`[IRBank] /${label} Format${isFormatA ? 'A' : 'B'} maxCnt=${_dbgMax} iqQtr=${iqQtr} rawRows=${data.rows.length}`);
                 // 最初の3行の生セルをログ（四半期ラベル確認用）
                 console.log(`[IRBank] /${label} first3raw:`, data.rows.slice(0, 3).map(({cells}) => cells.slice(0, 3).join('|')).join('  //  '));
                 const resolve = resolveQDate(data.rows, dIdx, iqQtr);
@@ -3789,6 +3790,7 @@
                         netInc:  getNum(cells, iqNetInc, unitDiv),
                         eps:    safeF(iqEPS),
                         opMgn:  safeF(iqOpMgn),
+                        isSingleQtr: isFormatA,  // Format A は各行が単独四半期値（累積ではない）
                     });
                 }
                 console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows → dates:', rows.map(r => r.date).join(', '));
@@ -3832,6 +3834,7 @@
                     roe:    null,
                     roa:    null,
                     opMgn:  qRow.opMgn,
+                    isSingleQtr: qRow.isSingleQtr ?? false,
                 };
             }
 
@@ -4151,8 +4154,13 @@
                         return `${fyYear}/${String(fyEndMonth).padStart(2, '0')}`;
                     };
 
-                    // ── 四半期単独値（累積→単独換算）──────────────────
-                    // 累積値が前期より小さくなる = 新年度開始 → その期は単独値＝累積値そのもの
+                    // ── 四半期単独値への変換 ────────────────────────────
+                    // Format A（/quarter が全四半期を持ち isSingleQtr=true）:
+                    //   Q1-Q3 はすでに単独値 → そのまま使用
+                    //   Q4（/results = 通期年間値）= 通期 - (Q1+Q2+Q3) で算出
+                    // Format B（/quarter=3M累積, /quarter2=6M累積, /quarter3=9M累積）:
+                    //   Q2 = Q2cum - Q1cum, Q3 = Q3cum - Q2cum, Q4 = 通期 - (Q1+Q2+Q3)
+                    // どちらも Q4 = 通期 - Σ(Q1..Q3 の qValue) で正しく計算できる
                     rows.forEach((r, i) => {
                         if (i === 0) {
                             r.qRev = r.rev; r.qOpInc = r.opInc; r.qOrdInc = r.ordInc; r.qNetInc = r.netInc;
@@ -4161,16 +4169,41 @@
                             const prev = rows[i - 1];
                             const isNewFY = (r.rev !== null && prev.rev !== null && r.rev < prev.rev);
                             const d = (a, b) => (a !== null && b !== null) ? a - b : null;
-                            r.qRev     = isNewFY ? r.rev    : d(r.rev,    prev.rev);
-                            r.qOpInc   = isNewFY ? r.opInc  : d(r.opInc,  prev.opInc);
-                            r.qOrdInc  = isNewFY ? r.ordInc : d(r.ordInc, prev.ordInc);
-                            r.qNetInc  = isNewFY ? r.netInc : d(r.netInc, prev.netInc);
-                            // CF: Q4行は通期の年間値をそのまま表示（前行がQ3でCF=nullでも壊れない）
-                            // Q1/Q2/Q3 は /cf が四半期データを持つ場合のみ差分、なければ null → —
+
+                            if (r.isSingleQtr) {
+                                // Format A 四半期行: すでに単独値なのでそのまま
+                                r.qRev = r.rev; r.qOpInc = r.opInc; r.qOrdInc = r.ordInc; r.qNetInc = r.netInc;
+                            } else if (isNewFY) {
+                                // 新年度最初の行（Format B Q1 や年次データの先頭行）
+                                r.qRev = r.rev; r.qOpInc = r.opInc; r.qOrdInc = r.ordInc; r.qNetInc = r.netInc;
+                            } else {
+                                // 年次(Q4)行 または Format B Q2/Q3 行:
+                                // 同一 FY 内の先行四半期の qValue 合計を求め、通期から引く
+                                const fyEnd   = getFYEndDate(r.date);
+                                const priorQs = rows.slice(0, i).filter(x => getFYEndDate(x.date) === fyEnd);
+                                if (priorQs.length > 0) {
+                                    const sumQ = (field) => {
+                                        const vals = priorQs.map(x => x[field]).filter(v => v !== null);
+                                        return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+                                    };
+                                    r.qRev    = d(r.rev,    sumQ('qRev'));
+                                    r.qOpInc  = d(r.opInc,  sumQ('qOpInc'));
+                                    r.qOrdInc = d(r.ordInc, sumQ('qOrdInc'));
+                                    r.qNetInc = d(r.netInc, sumQ('qNetInc'));
+                                } else {
+                                    // 先行四半期なし（年次データのみの場合）→ 前行との差分
+                                    r.qRev    = d(r.rev,    prev.rev);
+                                    r.qOpInc  = d(r.opInc,  prev.opInc);
+                                    r.qOrdInc = d(r.ordInc, prev.ordInc);
+                                    r.qNetInc = d(r.netInc, prev.netInc);
+                                }
+                            }
+
+                            // CF: Q4行・Format A行は通期年間値をそのまま表示
                             const isQ4row = getQLabel(r.date) === 'Q4';
-                            r.qOpCF   = (isNewFY || isQ4row) ? r.opCF   : d(r.opCF,   prev.opCF);
-                            r.qInvCF  = (isNewFY || isQ4row) ? r.invCF  : d(r.invCF,  prev.invCF);
-                            r.qFinCF  = (isNewFY || isQ4row) ? r.finCF  : d(r.finCF,  prev.finCF);
+                            r.qOpCF  = (isNewFY || isQ4row || r.isSingleQtr) ? r.opCF  : d(r.opCF,  prev.opCF);
+                            r.qInvCF = (isNewFY || isQ4row || r.isSingleQtr) ? r.invCF : d(r.invCF, prev.invCF);
+                            r.qFinCF = (isNewFY || isQ4row || r.isSingleQtr) ? r.finCF : d(r.finCF, prev.finCF);
                         }
                     });
 
