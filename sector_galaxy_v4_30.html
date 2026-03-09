@@ -3790,7 +3790,7 @@
                         netInc:  getNum(cells, iqNetInc, unitDiv),
                         eps:    safeF(iqEPS),
                         opMgn:  safeF(iqOpMgn),
-                        isSingleQtr: isFormatA,  // Format A は各行が単独四半期値（累積ではない）
+                        isSingleQtr: false,  // Format A も累積値（Format B と同様）
                     });
                 }
                 console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows → dates:', rows.map(r => r.date).join(', '));
@@ -3918,17 +3918,19 @@
                     const parts = [];
 
                     // ① 四半期損益棒グラフ（背景・直近8四半期・全幅）
-                    // 表示値: eps があればそれを、なければ netInc（百万円）を使用
+                    // 表示値: 事前計算済み qNetInc（単独四半期純利益, M円）を優先
                     const sorted8 = [...(qRows || [])]
                         .sort((a, b) => a.date.localeCompare(b.date))
                         .slice(-8);
-                    const useEps = sorted8.some(r => r.eps !== null);
+                    const hasPrecomp = sorted8.some(r => r.qNetInc !== undefined);
                     const barRows = sorted8.map(r => ({
                         ...r,
-                        barVal: useEps ? (r.eps ?? null) : (r.netInc ?? r.opInc ?? null),
+                        barVal: hasPrecomp
+                            ? (r.qNetInc ?? null)
+                            : (r.eps ?? r.netInc ?? null),
                     })).filter(r => r.barVal !== null);
 
-                    const barLabel = useEps ? 'EPS' : '純利益(M)';
+                    const barLabel = '純利益(M)';
                     if (barRows.length > 0) {
                         const bVals = barRows.map(r => r.barVal);
                         const bMn = Math.min(0, ...bVals), bMx = Math.max(...bVals, 1);
@@ -3946,7 +3948,7 @@
                         // 最新バー値ラベル（左下）
                         const labelY = (H - 4).toFixed(1);
                         const lastBar = barRows.at(-1);
-                        const lastBarTxt = useEps ? `EPS ¥${lastBar.barVal.toFixed(0)}` : `純利益 ${lastBar.barVal.toFixed(0)}M`;
+                        const lastBarTxt = `純利益 ${lastBar.barVal.toFixed(0)}M`;
                         parts.push(`<text x="${px}" y="${labelY}" fill="#5577cc" font-size="7.5" font-family="monospace">${lastBarTxt}</text>`);
                         // 期間ラベル（左端・右端 上部）
                         const d0 = barRows[0]?.date, d1 = barRows.at(-1)?.date;
@@ -4098,6 +4100,31 @@
                 // PEGレシオ = PER ÷ EPS成長率(%)（成長率・PERともに正の場合のみ意味を持つ）
                 if (estPer && fmMetrics?.epsGrowth && fmMetrics.epsGrowth > 0) {
                     estPeg = estPer / fmMetrics.epsGrowth;
+                }
+
+                // ── buildMiniChart 用に四半期単独純利益を事前計算 ──────────────
+                // buildMiniChart は buildFinTable より先に評価されるため、ここで計算する
+                if (irbankQuarterRows?.length) {
+                    const _fyEm = (() => {
+                        const ms = (irbankRows||[]).map(r => parseInt(r.date.split('/')[1])).filter(m => m);
+                        const cnt = {}; for (const m of ms) cnt[m] = (cnt[m]||0)+1;
+                        return parseInt(Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]?.[0]||'3');
+                    })();
+                    const _getFY = (date) => {
+                        const [y, mo] = date.split('/').map(Number);
+                        return `${mo <= _fyEm ? y : y+1}/${String(_fyEm).padStart(2,'0')}`;
+                    };
+                    const _rs = [...irbankQuarterRows].sort((a,b) => a.date.localeCompare(b.date));
+                    _rs.forEach((r, i) => {
+                        if (r.netInc === null) { r.qNetInc = null; return; }
+                        const prev = _rs[i-1];
+                        if (!prev || r.netInc < prev.netInc) { r.qNetInc = r.netInc; return; }
+                        const fy = _getFY(r.date);
+                        const prior = _rs.slice(0,i).filter(x => _getFY(x.date) === fy && x.qNetInc !== null && x.qNetInc !== undefined);
+                        r.qNetInc = prior.length
+                            ? r.netInc - prior.reduce((s,x) => s + x.qNetInc, 0)
+                            : r.netInc - prev.netInc;
+                    });
                 }
 
                 aoTitle.textContent = `${rawCode}  ${name}`;
