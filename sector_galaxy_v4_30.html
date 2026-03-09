@@ -3790,8 +3790,20 @@
                         netInc:  getNum(cells, iqNetInc, unitDiv),
                         eps:    safeF(iqEPS),
                         opMgn:  safeF(iqOpMgn),
-                        isSingleQtr: false,  // Format A も累積値（Format B と同様）
+                        isSingleQtr: false,  // 初期値: 後でまとめて更新
                     });
+                }
+                // Format A のデータが単独四半期値か累積値か自動検出
+                // 累積: 値が単調増加（Q2>=Q1, Q3>=Q2）→ isSingleQtr=false のまま
+                // 単独: 任意の順序（Q3 < Q2 など）→ isSingleQtr=true に変更
+                if (isFormatA) {
+                    const srt = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+                    let isSingle = false;
+                    for (let i = 1; i < srt.length; i++) {
+                        const p = srt[i-1], c = srt[i];
+                        if (c.rev !== null && p.rev !== null && c.rev < p.rev) { isSingle = true; break; }
+                    }
+                    if (isSingle) rows.forEach(r => r.isSingleQtr = true);
                 }
                 console.log(`[IRBank] /${label} parsed:`, rows.length, 'rows → dates:', rows.map(r => r.date).join(', '));
                 return rows;
@@ -3809,7 +3821,13 @@
                 allQMap[r.date] = { ...r };
             }
             // 各四半期ページのデータを追加（重複日付はスキップ）
+            // 未発表（期末日が先月末より先）の四半期行は除外
+            const _lastCompleteYM = (() => {
+                const d = new Date(); d.setDate(0);  // 先月末
+                return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+            })();
             for (const qRow of [...q1Rows, ...q2Rows, ...q3Rows]) {
+                if (qRow.date > _lastCompleteYM) continue;  // 未発表の将来期間はスキップ
                 if (allQMap[qRow.date]) continue;  // 既登録（通期と同日 or 重複）はスキップ
                 const cf = cfByDate[qRow.date] || {};
                 const bs = bsByDate[qRow.date] || {};
@@ -4067,6 +4085,8 @@
                         netYoY:  yoy(latest.netInc, prevYr?.netInc),
                             fcf:     (latest.opCF !== null && latest.invCF !== null) ? latest.opCF + latest.invCF : null,
                         opCF:    latest.opCF,
+                        invCF:   latest.invCF ?? null,
+                        finCF:   latest.finCF ?? null,
                         cash:    latest.cash,
                         debt:    latest.debt ?? null,
                         netCash: (latest.cash !== null)
@@ -4342,7 +4362,10 @@
                             ${fmMetrics.epsGrowth !== null ? `<div class="ao-metric"><span>EPS成長(YoY)</span><strong class="${fmMetrics.epsGrowth >= 0 ? 'pos' : 'neg'}">${fmMetrics.epsGrowth >= 0 ? '+' : ''}${fmMetrics.epsGrowth.toFixed(1)}%</strong></div>` : ''}
                             <div class="ao-metric-sep"></div>
                             ${fmMetrics.opCF    !== null ? `<div class="ao-metric"><span>営業CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.opCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.opCF >= 0 ? '+' : ''}${Math.round(fmMetrics.opCF).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.invCF   !== null ? `<div class="ao-metric"><span>投資CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.invCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.invCF >= 0 ? '+' : ''}${Math.round(fmMetrics.invCF).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.finCF   !== null ? `<div class="ao-metric"><span>財務CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.finCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.finCF >= 0 ? '+' : ''}${Math.round(fmMetrics.finCF).toLocaleString()}</strong></div>` : ''}
                             ${fmMetrics.fcf     !== null ? `<div class="ao-metric"><span>FCF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.fcf >= 0 ? 'pos' : 'neg'}">${fmMetrics.fcf >= 0 ? '+' : ''}${Math.round(fmMetrics.fcf).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.cash    !== null ? `<div class="ao-metric"><span>現金等 <small style="color:#444;">(百万円)</small></span><strong class="pos">+${Math.round(fmMetrics.cash).toLocaleString()}</strong></div>` : ''}
                             ${fmMetrics.netCash !== null ? `<div class="ao-metric">
                                 <span>ネットキャッシュ <small style="color:#444;">(百万円)${fmMetrics.netCashHasDebt ? '' : ' ※現金のみ'}</small></span>
                                 <strong class="${fmMetrics.netCash >= 0 ? 'pos' : 'neg'}">${fmMetrics.netCash >= 0 ? '+' : ''}${Math.round(fmMetrics.netCash).toLocaleString()}</strong>
@@ -4397,12 +4420,20 @@
                     };
                     try {
                         const companyName = irbankCompanyName || rawCode;
+                        // TV番組・映画・楽曲等の非企業ページを除外するチェック
+                        const isNonCompany = (text) => !text ? false :
+                            /テレビ番組|テレビドラマ|放送されている|バラエティ|アニメ|漫画|映画|アルバム|楽曲|音楽グループ/.test(text);
                         let extract = await fetchWikiSummary(companyName);
+                        if (isNonCompany(extract)) extract = null;
+                        // 見つからない・非企業の場合、「(企業)」付きで再試行
+                        if (!extract) extract = await fetchWikiSummary(companyName + '（企業）');
+                        if (isNonCompany(extract)) extract = null;
                         // さらに見つからない場合、「株式会社」等を除いた短い名前で再試行
                         if (!extract) {
                             const shortName = companyName.replace(/株式会社|HD|ホールディングス|グループ|G$/g, '').trim();
                             if (shortName && shortName !== companyName) {
                                 extract = await fetchWikiSummary(shortName);
+                                if (isNonCompany(extract)) extract = null;
                             }
                         }
                         elOv.textContent = extract || '概要情報が見つかりませんでした。';
