@@ -1483,6 +1483,17 @@
     </style>
 </head>
 <body>
+    <!-- file:// 起動時の CORS 警告バナー -->
+    <div id="cors-warn" style="display:none;background:#c0392b;color:#fff;padding:10px 16px;font-size:0.85rem;text-align:center;position:sticky;top:0;z-index:9999;">
+      ⚠️ <strong>CORSエラー:</strong> このファイルを <code>file://</code> で開いているため外部APIへのアクセスが制限されています。
+      ローカルサーバーで開いてください：
+      <code style="background:rgba(0,0,0,.3);padding:2px 6px;border-radius:3px;">python3 -m http.server 8080</code>
+      → <a href="http://localhost:8080/" style="color:#ffd" target="_blank">http://localhost:8080/</a>
+      <button onclick="document.getElementById('cors-warn').style.display='none'" style="margin-left:12px;background:transparent;border:1px solid #fff8;color:#fff;cursor:pointer;padding:2px 8px;border-radius:3px;">✕</button>
+    </div>
+    <script>
+      if (location.protocol === 'file:') document.getElementById('cors-warn').style.display = 'block';
+    </script>
     <div class="container">
         <div class="main-section">
             <header>
@@ -2433,14 +2444,16 @@
         const PROXY        = 'https://corsproxy.io/?url=';  // 後方互換用（下記 proxyFetch を使用）
         const YF_BATCH     = 25;
 
-        // 複数CORSプロキシのフォールバック（信頼性の高い順に並べる）
+        // 複数CORSプロキシのフォールバック
+        // file:// (null origin) 対応: ACAO:* を返すプロキシを優先
         const PROXY_LIST = [
-            u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+            u => `https://corsproxy.dev/?url=${encodeURIComponent(u)}`,
             u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-            u => `https://thingproxy.freeboard.io/fetch/${u}`,
+            u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
             u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+            u => `https://proxy.cors.sh/${u}`,
         ];
-        const PROXY_NAMES = ['allorigins', 'corsproxy.io', 'thingproxy', 'codetabs'];
+        const PROXY_NAMES = ['corsproxy.dev', 'corsproxy.io', 'allorigins', 'codetabs', 'cors.sh'];
         let _proxyIdx = 0;  // 動作中のプロキシインデックスをキャッシュ
         const proxyFetch = async (targetUrl, options = {}) => {
             const n = PROXY_LIST.length;
@@ -2458,6 +2471,8 @@
                     console.warn(`[proxy] ${PROXY_NAMES[idx]} error:`, e.message);
                 }
             }
+            const w = document.getElementById('cors-warn');
+            if (w) w.style.display = 'block';
             throw new Error(`[proxy] all proxies failed for ${targetUrl}`);
         };
 
