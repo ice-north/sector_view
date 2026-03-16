@@ -2430,8 +2430,26 @@
         // ============================================================
         const YF_URL       = 'https://query1.finance.yahoo.com/v7/finance/quote';
         const YF_SPARK_URL = 'https://query1.finance.yahoo.com/v7/finance/spark';
-        const PROXY        = 'https://corsproxy.io/?url=';
+        const PROXY        = 'https://corsproxy.io/?url=';  // 後方互換用（下記 proxyFetch を使用）
         const YF_BATCH     = 25;
+
+        // 複数CORSプロキシのフォールバック
+        const PROXY_LIST = [
+            u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+            u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+            u => `https://thingproxy.freeboard.io/fetch/${u}`,
+        ];
+        let _proxyIdx = 0;  // 動作中のプロキシインデックスをキャッシュ
+        const proxyFetch = async (targetUrl, options = {}) => {
+            const order = [_proxyIdx, ...[0,1,2].filter(i => i !== _proxyIdx)];
+            for (const idx of order) {
+                try {
+                    const res = await fetch(PROXY_LIST[idx](targetUrl), options);
+                    if (res.ok || res.status === 404) { _proxyIdx = idx; return res; }
+                } catch (_) { /* try next */ }
+            }
+            throw new Error(`proxyFetch failed: ${targetUrl}`);
+        };
 
         // 期間 → interval（interval=1wk/3mo は一部銘柄でデータ欠損が生じるため廃止）
         // 6m/1y も interval=1d で取得（データ点が増えるが確実に取得できる）
@@ -2467,10 +2485,9 @@
         // 疎通テスト（Chart v8 API を使用。Yahoo Finance v7 quote は 401 のため廃止）
         async function checkYahooFinance() {
             try {
-                const url = PROXY + encodeURIComponent(
-                    `https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?range=1d&interval=1d`
-                );
-                const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                const res  = await proxyFetch(
+                    `https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?range=1d&interval=1d`,
+                    { signal: AbortSignal.timeout(8000) });
                 const json = await res.json();
                 return !!(json.chart?.result?.length);
             } catch {
@@ -2508,10 +2525,8 @@
                 const batch   = tickers.slice(i, i + YF_BATCH);
                 const symbols = batch.join(',');
                 try {
-                    const url  = PROXY + encodeURIComponent(
-                        `${YF_SPARK_URL}?symbols=${symbols}&range=${range}&interval=${interval}`
-                    );
-                    const res  = await fetch(url);
+                    const res  = await proxyFetch(
+                        `${YF_SPARK_URL}?symbols=${symbols}&range=${range}&interval=${interval}`);
                     const json = await res.json();
                     for (const item of (json.spark?.result || [])) {
                         const resp   = item.response?.[0];
@@ -2544,10 +2559,8 @@
                 const query = secs
                     ? `period1=${now - secs}&period2=${now}&interval=${interval}`
                     : `range=max&interval=1mo`;
-                const url  = PROXY + encodeURIComponent(
-                    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?${query}`
-                );
-                const res  = await fetch(url);
+                const res  = await proxyFetch(
+                    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?${query}`);
                 const json = await res.json();
                 const result = json.chart?.result?.[0];
                 if (!result) return null;
@@ -2856,7 +2869,7 @@
                 for (const feed of rssFeeds) {
                     if (fetchedReal) break;
                     try {
-                        const fetchPromise = fetch(PROXY + encodeURIComponent(feed.url));
+                        const fetchPromise = proxyFetch(feed.url);
                         const timeoutPromise = new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('timeout')), 8000)
                         );
@@ -3401,7 +3414,7 @@
             try {
                 // stooq は東証銘柄を {code}.jp で識別
                 const url = `https://stooq.com/q/l/?s=${rawCode}.jp&f=sd2t2ohlcv&e=csv`;
-                const res = await fetch(PROXY + encodeURIComponent(url));
+                const res = await proxyFetch(url);
                 if (!res.ok) return null;
                 const text = await res.text();
                 // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
@@ -3436,9 +3449,7 @@
             // 1ページ分の HTML テーブルを取得してパースするヘルパー
             const parsePage = async (path) => {
                 try {
-                    const res = await fetch(
-                        PROXY + encodeURIComponent(`${IRBANK}/${rawCode}/${path}`)
-                    );
+                    const res = await proxyFetch(`${IRBANK}/${rawCode}/${path}`);
                     if (!res.ok) return { headers: [], rows: [] };
                     const html = await res.text();
                     const doc  = new DOMParser().parseFromString(html, 'text/html');
