@@ -2433,22 +2433,32 @@
         const PROXY        = 'https://corsproxy.io/?url=';  // 後方互換用（下記 proxyFetch を使用）
         const YF_BATCH     = 25;
 
-        // 複数CORSプロキシのフォールバック
+        // 複数CORSプロキシのフォールバック（信頼性の高い順に並べる）
         const PROXY_LIST = [
-            u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
             u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+            u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
             u => `https://thingproxy.freeboard.io/fetch/${u}`,
+            u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
         ];
+        const PROXY_NAMES = ['allorigins', 'corsproxy.io', 'thingproxy', 'codetabs'];
         let _proxyIdx = 0;  // 動作中のプロキシインデックスをキャッシュ
         const proxyFetch = async (targetUrl, options = {}) => {
-            const order = [_proxyIdx, ...[0,1,2].filter(i => i !== _proxyIdx)];
+            const n = PROXY_LIST.length;
+            const order = [_proxyIdx, ...[...Array(n).keys()].filter(i => i !== _proxyIdx)];
             for (const idx of order) {
                 try {
                     const res = await fetch(PROXY_LIST[idx](targetUrl), options);
-                    if (res.ok || res.status === 404) { _proxyIdx = idx; return res; }
-                } catch (_) { /* try next */ }
+                    if (res.ok || res.status === 404) {
+                        if (idx !== _proxyIdx) console.log(`[proxy] switched to ${PROXY_NAMES[idx]}`);
+                        _proxyIdx = idx;
+                        return res;
+                    }
+                    console.warn(`[proxy] ${PROXY_NAMES[idx]} returned ${res.status}`);
+                } catch (e) {
+                    console.warn(`[proxy] ${PROXY_NAMES[idx]} error:`, e.message);
+                }
             }
-            throw new Error(`proxyFetch failed: ${targetUrl}`);
+            throw new Error(`[proxy] all proxies failed for ${targetUrl}`);
         };
 
         // 期間 → interval（interval=1wk/3mo は一部銘柄でデータ欠損が生じるため廃止）
