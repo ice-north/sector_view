@@ -1494,10 +1494,89 @@
     <script>
       if (location.protocol === 'file:') document.getElementById('cors-warn').style.display = 'block';
     </script>
+
+    <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+         EDINET DB 設定モーダル
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+    <div id="settings-modal" onclick="if(event.target===this)closeSettings()"
+         style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10001;align-items:center;justify-content:center;">
+      <div style="background:#141428;border:1px solid #334;border-radius:10px;padding:26px;width:440px;max-width:93vw;box-shadow:0 8px 40px #000c;">
+        <h3 style="color:#ccd;margin:0 0 20px;font-size:1rem;letter-spacing:.04em;">⚙ API 設定</h3>
+        <div style="margin-bottom:16px;">
+          <label style="color:#99a;font-size:0.8rem;display:block;margin-bottom:6px;">
+            EDINET DB APIキー
+            <a href="https://edinetdb.jp/developers" target="_blank"
+               style="color:#6699cc;font-size:0.73rem;margin-left:8px;">（無料取得 ↗）</a>
+          </label>
+          <input id="edinetdb-key-input" type="password" placeholder="edb_xxxxxxxx..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;background:#0a0a1e;border:1px solid #445;color:#dde;
+                   padding:9px 11px;border-radius:5px;font-size:0.85rem;font-family:monospace;"/>
+          <div style="font-size:0.72rem;color:#556;margin-top:8px;line-height:1.6;">
+            設定すると IRBank の代わりに <strong style="color:#7799bb;">EDINET DB</strong>（有価証券報告書ベース）から財務データを優先取得します。<br>
+            APIキーはブラウザの <code style="color:#89a;">localStorage</code> にのみ保存されます。Free プランで 100回/日。
+          </div>
+        </div>
+        <div id="edinetdb-key-status" style="font-size:0.75rem;color:#5a8;min-height:1.2em;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="closeSettings()"
+            style="background:transparent;border:1px solid #445;color:#889;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">キャンセル</button>
+          <button onclick="clearEdinetKey()"
+            style="background:#2a1515;border:1px solid #644;color:#c87;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">削除</button>
+          <button onclick="saveSettings()"
+            style="background:#1e3a5f;border:1px solid #2a5a8a;color:#9bc;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;font-weight:bold;">保存</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      function openSettings() {
+        const modal  = document.getElementById('settings-modal');
+        const inp    = document.getElementById('edinetdb-key-input');
+        const status = document.getElementById('edinetdb-key-status');
+        const saved  = localStorage.getItem('edinetdb_api_key') || '';
+        inp.value        = saved ? '••••••••' + saved.slice(-4) : '';
+        inp.dataset.masked = saved ? '1' : '';
+        status.textContent = saved ? '✓ APIキー設定済み' : '';
+        modal.style.display = 'flex';
+        if (!saved) inp.focus();
+      }
+      function closeSettings() {
+        document.getElementById('settings-modal').style.display = 'none';
+      }
+      function clearEdinetKey() {
+        localStorage.removeItem('edinetdb_api_key');
+        document.getElementById('edinetdb-key-input').value = '';
+        document.getElementById('edinetdb-key-input').dataset.masked = '';
+        document.getElementById('edinetdb-key-status').textContent = '🗑 削除しました';
+      }
+      function saveSettings() {
+        const inp = document.getElementById('edinetdb-key-input');
+        const val = inp.value.trim();
+        // マスク表示のままなら変更なし
+        if (inp.dataset.masked === '1' && val.startsWith('••••')) { closeSettings(); return; }
+        if (val) {
+          localStorage.setItem('edinetdb_api_key', val);
+          document.getElementById('edinetdb-key-status').textContent = '✓ 保存しました';
+          setTimeout(closeSettings, 700);
+        } else {
+          localStorage.removeItem('edinetdb_api_key');
+          document.getElementById('edinetdb-key-status').textContent = '🗑 削除しました';
+          setTimeout(closeSettings, 700);
+        }
+      }
+      // 入力フォーカス時にマスク解除
+      document.getElementById('edinetdb-key-input').addEventListener('focus', function() {
+        if (this.dataset.masked === '1') { this.value = ''; this.dataset.masked = ''; }
+      });
+    </script>
+
     <div class="container">
         <div class="main-section">
             <header>
                 <h1>セクター資金移動マップ</h1>
+                <button onclick="openSettings()" title="API設定 (EDINET DB)"
+                  style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,0.07);
+                         border:1px solid rgba(255,255,255,0.18);color:#778;cursor:pointer;
+                         padding:4px 11px;border-radius:5px;font-size:0.73rem;z-index:10;">⚙ 設定</button>
                 <div class="date-range" id="date-range-display">リアルタイムデータ</div>
                 <div id="macro-panel">
                     <div class="macro-item" title="米ドル／円"><span class="macro-label">USD/JPY</span><span class="macro-price" id="mp-usdjpy">--</span><span class="macro-ch neu" id="mc-usdjpy">--</span></div>
@@ -3905,6 +3984,102 @@
             return result.length ? { rows: result, quarterRows, hasRealQuarters, companyName: _companyName } : null;
         }
 
+        // ────────────────────────────────────────────────────────────────
+        // EDINET DB API — 財務データ取得（IRBank の代替・優先ソース）
+        // APIキーが localStorage に保存されている場合のみ動作
+        // ────────────────────────────────────────────────────────────────
+        async function fetchEdinetDB(stockCode) {
+            const apiKey = localStorage.getItem('edinetdb_api_key');
+            if (!apiKey) return null;
+
+            const BASE = 'https://edinetdb.jp/v1';
+            const AUTH = { 'X-API-Key': apiKey };
+
+            try {
+                // ① 証券コード → EDINETコードを検索（認証不要）
+                const sRes = await fetch(`${BASE}/search?q=${encodeURIComponent(stockCode)}`);
+                if (!sRes.ok) { console.warn('[EdinetDB] 検索失敗:', sRes.status); return null; }
+                const sJson = await sRes.json();
+                const cList = Array.isArray(sJson.data) ? sJson.data
+                            : Array.isArray(sJson)      ? sJson : [];
+                // 証券コードが完全一致する企業を優先、なければ先頭
+                const norm = s => String(s || '').replace(/^0+/, '');
+                const company = cList.find(c =>
+                    norm(c.securities_code ?? c.security_code ?? c.stock_code ?? c.code) === norm(stockCode)
+                ) ?? cList[0];
+                if (!company) { console.warn('[EdinetDB] 企業なし:', stockCode); return null; }
+
+                const edinetCode  = company.edinet_code ?? company.edinetCode ?? company.id;
+                const companyName = company.company_name ?? company.filer_name_jp ?? company.name ?? null;
+                console.log('[EdinetDB] 企業:', companyName, '/ EDINET:', edinetCode);
+
+                // ② 年次財務データ（最大6年）と四半期データを並列取得
+                const [fRes, qRes] = await Promise.all([
+                    fetch(`${BASE}/companies/${edinetCode}/financials?years=6`, { headers: AUTH }),
+                    fetch(`${BASE}/companies/${edinetCode}/financials?period=quarterly`, { headers: AUTH }),
+                ]);
+                if (!fRes.ok) { console.warn('[EdinetDB] 財務取得失敗:', fRes.status); return null; }
+
+                const fJson  = await fRes.json();
+                console.log('[EdinetDB] raw response:', fJson);
+                const rawRows = Array.isArray(fJson.data) ? fJson.data : [];
+                if (!rawRows.length) { console.warn('[EdinetDB] データなし'); return null; }
+
+                // ③ IRBank 互換形式（百万円単位）へ変換
+                const toM = v => (v != null && !isNaN(+v)) ? Math.round(+v / 1_000_000) : null;
+                const toN = v => (v != null && !isNaN(+v)) ? +v : null;
+                const mapRow = r => {
+                    // 決算期を "YYYY/MM" 形式に正規化
+                    let date = r.fiscal_year_end ?? r.period_end ?? r.end_date ?? null;
+                    if (!date && r.fiscal_year) date = `${r.fiscal_year}/03`; // デフォルト3月末
+                    if (date) date = date.replace(/^(\d{4})-(\d{2}).*/, '$1/$2');
+                    const rt = r.ratios ?? {};
+                    return {
+                        date,
+                        rev:     toM(r.net_sales     ?? r.revenue),
+                        opInc:   toM(r.operating_income ?? r.operating_profit),
+                        ordInc:  toM(r.ordinary_income),
+                        netInc:  toM(r.net_income    ?? r.profit_attributable_to_owners ?? r.profit),
+                        assets:  toM(r.total_assets),
+                        equity:  toM(r.net_assets    ?? r.shareholders_equity ?? r.equity),
+                        eqRatio: toN(r.equity_ratio  ?? rt.equity_ratio),
+                        shares:  toN(r.shares_outstanding ?? r.shares),
+                        debt:    toM(r.interest_bearing_debt ?? rt.interest_bearing_debt),
+                        opCF:    toM(r.operating_cash_flow),
+                        invCF:   toM(r.investing_cash_flow),
+                        finCF:   toM(r.financing_cash_flow),
+                        cash:    toM(r.cash_and_equivalents ?? r.cash),
+                        eps:     toN(r.eps),
+                        bps:     toN(r.bps),
+                        dps:     toN(r.adjusted_dividend_per_share ?? r.dividend_per_share),
+                        payout:  toN(r.payout_ratio),
+                        roe:     toN(r.roe    ?? rt.roe),
+                        roa:     toN(r.roa    ?? rt.roa),
+                        opMgn:   toN(r.operating_margin ?? rt.operating_margin),
+                    };
+                };
+
+                const rows = rawRows.map(mapRow)
+                    .filter(r => r.date && (r.rev !== null || r.netInc !== null));
+                if (!rows.length) { console.warn('[EdinetDB] 変換後データなし'); return null; }
+
+                // ④ 四半期データ変換
+                let quarterRows = null;
+                if (qRes.ok) {
+                    const qJson = await qRes.json();
+                    const qRaw  = Array.isArray(qJson.data) ? qJson.data : [];
+                    if (qRaw.length) quarterRows = qRaw.map(mapRow).filter(r => r.date);
+                }
+
+                console.log('[EdinetDB] 完了 rows:', rows.length, '/ Q:', quarterRows?.length ?? 0);
+                return { rows, quarterRows, hasRealQuarters: !!quarterRows?.length, companyName };
+
+            } catch (e) {
+                console.warn('[EdinetDB] エラー:', e);
+                return null;
+            }
+        }
+
         async function analyzeStock() {
             const input   = document.getElementById('stock-code-input');
             const rawCode = input.value.trim().replace(/[^0-9A-Za-z]/g, '');
@@ -3928,7 +4103,7 @@
                 const perfPeriods = ['1w', '1m', '3m', '6m', '1y', '2y', '3y'];
                 const perfMap     = {};
 
-                const [, irbankResult, stooqResult] = await Promise.all([
+                const [, irbankResult, stooqResult, edinetResult] = await Promise.all([
                     Promise.all(perfPeriods.map(async p => {
                         const v = await fetchChartOne(ticker, p, p === '2y');
                         perfMap[p] = v ? v.change : null;
@@ -3937,11 +4112,17 @@
                     })),
                     fetchIRBankFin(rawCode),    // {rows, companyName}
                     fetchStooqPrice(rawCode),   // {price, date} | null
+                    fetchEdinetDB(rawCode),     // {rows, companyName} | null （APIキー設定時のみ）
                 ]);
-                const irbankRows        = irbankResult?.rows            ?? null;  // 年次データ（指標計算用）
-                const irbankQuarterRows = irbankResult?.quarterRows   ?? null;  // 統合四半期データ（テーブル表示用）
-                const hasRealQuarters   = irbankResult?.hasRealQuarters ?? false; // Q1+Q2+Q3 全取得済み
-                const irbankCompanyName = irbankResult?.companyName   ?? null;
+                // EDINET DB が取得できた場合は優先、できなければ IRBank にフォールバック
+                const finSource         = edinetResult ?? irbankResult;
+                const finSourceName     = edinetResult ? 'EDINET DB' : irbankResult ? 'IRBank' : null;
+                const irbankRows        = finSource?.rows            ?? null;  // 年次データ（指標計算用）
+                const irbankQuarterRows = finSource?.quarterRows     ?? null;  // 統合四半期データ（テーブル表示用）
+                const hasRealQuarters   = finSource?.hasRealQuarters ?? false; // Q1+Q2+Q3 全取得済み
+                const irbankCompanyName = finSource?.companyName     ?? null;
+                if (edinetResult) console.log('[analyzeStock] EDINET DB データを使用');
+                else if (irbankResult) console.log('[analyzeStock] IRBank データを使用');
 
                 // どこからもデータが取れなければエラー
                 if (!irbankRows && !chartNow && !stooqResult) {
@@ -4136,6 +4317,10 @@
                         rev:     latest.rev,
                         opInc:   latest.opInc,
                         netInc:  latest.netInc,
+                        // EDINET DB 追加フィールド（IRBank では null）
+                        bps:     latest.bps    ?? null,
+                        dps:     latest.dps    ?? null,
+                        payout:  latest.payout ?? null,
                     };
                 }
 
@@ -4148,7 +4333,10 @@
                         const sharesEst = latestRow.netInc * 1e6 / fmMetrics.eps;
                         estMktCap = price * sharesEst;
                         estPer    = price / fmMetrics.eps;
-                        if (latestRow.equity) {
+                        if (fmMetrics?.bps && fmMetrics.bps > 0) {
+                            // BPS が直接取得できる場合（EDINET DB）は精確値を使用
+                            estPbr = price / fmMetrics.bps;
+                        } else if (latestRow.equity) {
                             estPbr = price / (latestRow.equity * 1e6 / sharesEst);
                         }
                     }
@@ -4396,6 +4584,9 @@
                             ${fmMetrics.revYoY  !== null ? `<div class="ao-metric"><span>売上成長(YoY)</span><strong class="${fmMetrics.revYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.revYoY >= 0 ? '+' : ''}${fmMetrics.revYoY.toFixed(1)}%</strong></div>` : ''}
                             ${fmMetrics.netYoY  !== null ? `<div class="ao-metric"><span>純利成長(YoY)</span><strong class="${fmMetrics.netYoY >= 0 ? 'pos' : 'neg'}">${fmMetrics.netYoY >= 0 ? '+' : ''}${fmMetrics.netYoY.toFixed(1)}%</strong></div>` : ''}
                             ${fmMetrics.epsGrowth !== null ? `<div class="ao-metric"><span>EPS成長(YoY)</span><strong class="${fmMetrics.epsGrowth >= 0 ? 'pos' : 'neg'}">${fmMetrics.epsGrowth >= 0 ? '+' : ''}${fmMetrics.epsGrowth.toFixed(1)}%</strong></div>` : ''}
+                            ${fmMetrics.bps    !== null ? `<div class="ao-metric"><span>BPS</span><strong>¥${Math.round(fmMetrics.bps).toLocaleString()}</strong></div>` : ''}
+                            ${fmMetrics.dps    !== null ? `<div class="ao-metric"><span>配当/株(調整後)</span><strong>¥${fmMetrics.dps.toFixed(fmMetrics.dps < 10 ? 2 : 0)}</strong></div>` : ''}
+                            ${fmMetrics.payout !== null ? `<div class="ao-metric"><span>配当性向</span><strong>${fmMetrics.payout.toFixed(1)}%</strong></div>` : ''}
                             <div class="ao-metric-sep"></div>
                             ${fmMetrics.opCF    !== null ? `<div class="ao-metric"><span>営業CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.opCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.opCF >= 0 ? '+' : ''}${Math.round(fmMetrics.opCF).toLocaleString()}</strong></div>` : ''}
                             ${fmMetrics.invCF   !== null ? `<div class="ao-metric"><span>投資CF <small style="color:#444;">(百万円)</small></span><strong class="${fmMetrics.invCF >= 0 ? 'pos' : 'neg'}">${fmMetrics.invCF >= 0 ? '+' : ''}${Math.round(fmMetrics.invCF).toLocaleString()}</strong></div>` : ''}
@@ -4410,7 +4601,7 @@
                                 <span>PEGレシオ <small style="color:#444;">(PER÷EPS成長率)</small></span>
                                 <strong class="${estPeg < 1 ? 'pos' : estPeg > 2 ? 'neg' : ''}">${estPeg.toFixed(2)}倍</strong>
                             </div>` : ''}
-                            <div class="ao-metric" style="font-size:0.6rem;color:#444;grid-column:span 2;">財務指標: ${fmMetrics.date} 期末 (IRBank.net)</div>
+                            <div class="ao-metric" style="font-size:0.6rem;color:#444;grid-column:span 2;">財務指標: ${fmMetrics.date} 期末 (${finSourceName ?? 'IRBank.net'})</div>
                             ` : ''}
                         </div>
                     </div>
@@ -4427,7 +4618,7 @@
                     </div>
 
                     <!-- ③ 四半期財務テーブル -->
-                    <div class="ao-section-title">四半期財務データ${hasRealQuarters ? '' : irbankQuarterRows?.length > (irbankRows?.length ?? 0) ? '（Q1+通期）' : '（年次）'}${(irbankRows || irbankQuarterRows) ? ' <small style="color:#5599ff;font-size:0.7rem;">IRBank.net</small>' : ''}</div>
+                    <div class="ao-section-title">四半期財務データ${hasRealQuarters ? '' : irbankQuarterRows?.length > (irbankRows?.length ?? 0) ? '（Q1+通期）' : '（年次）'}${finSourceName ? ` <small style="color:#5599ff;font-size:0.7rem;">${finSourceName}</small>` : ''}</div>
                     ${buildFinTable()}
                 `;
 
