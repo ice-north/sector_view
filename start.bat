@@ -31,13 +31,13 @@ if errorlevel 1 (
 
 echo.
 echo ============================================
-echo  サーバーを起動します: http://localhost:5000
+echo  サーバーを起動します: http://localhost:8080
 echo  終了するには Ctrl+C を押してください
 echo ============================================
 echo.
 
 :: ブラウザを自動で開く（5秒待ってから）
-start /b cmd /c "timeout /t 5 > nul && start http://localhost:5000"
+start /b cmd /c "timeout /t 5 > nul && start http://localhost:8080"
 
 python server.py
 if errorlevel 1 (
