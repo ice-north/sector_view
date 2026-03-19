@@ -8,9 +8,12 @@ import re
 import time
 import threading
 from datetime import datetime
+from urllib.parse import urlparse
 
 import os
-from flask import Flask, jsonify, send_from_directory, request
+import requests as _req
+from dotenv import load_dotenv
+from flask import Flask, jsonify, send_from_directory, request, Response
 from flask_cors import CORS
 import yfinance as yf
 import feedparser
@@ -19,6 +22,9 @@ try:
     _HAS_ANTHROPIC = True
 except ImportError:
     _HAS_ANTHROPIC = False
+
+load_dotenv()
+EDINET_API_KEY = os.getenv("EDINET_API_KEY", "")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR)
@@ -456,7 +462,79 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    return jsonify({"status": "ok", "time": datetime.now().isoformat()})
+    return jsonify({
+        "status": "ok",
+        "time": datetime.now().isoformat(),
+        "edinet_key_configured": bool(EDINET_API_KEY),
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  汎用 CORS プロキシ  GET /api/proxy?url=<encoded_url>
+#  IRBank / Yahoo Finance / Stooq など外部サイトへのリクエストを中継する
+# ─────────────────────────────────────────────────────────────────────────────
+_PROXY_ALLOWED = [
+    "irbank.net",
+    "stooq.com",
+    "query1.finance.yahoo.com",
+    "query2.finance.yahoo.com",
+]
+_PROXY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+@app.route("/api/proxy")
+def api_proxy():
+    """汎用 CORS プロキシ（許可ドメインのみ）"""
+    target = request.args.get("url", "")
+    if not target:
+        return jsonify({"error": "url パラメータが必要です"}), 400
+
+    host = urlparse(target).netloc.lower()
+    if not any(host == d or host.endswith("." + d) for d in _PROXY_ALLOWED):
+        return jsonify({"error": f"許可されていないドメイン: {host}"}), 403
+
+    try:
+        r = _req.get(target, headers=_PROXY_HEADERS, timeout=15, allow_redirects=True)
+        content_type = r.headers.get("Content-Type", "text/plain; charset=utf-8")
+        return Response(r.content, status=r.status_code, content_type=content_type)
+    except _req.exceptions.Timeout:
+        return jsonify({"error": "タイムアウト"}), 504
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  EDINET DB プロキシ  GET /api/edinet/<path>
+#  APIキーをサーバー側で付与し、edinetdb.jp/v1 へ中継する
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route("/api/edinet/<path:path>")
+def api_edinet(path):
+    """EDINET DB プロキシ（APIキーはサーバー側で付与）"""
+    if not EDINET_API_KEY:
+        return jsonify({
+            "error": "EDINET_API_KEY が未設定です。.env ファイルに EDINET_API_KEY=edb_xxx を追加してください。"
+        }), 503
+
+    qs = request.query_string.decode()
+    target = f"https://edinetdb.jp/v1/{path}"
+    if qs:
+        target += f"?{qs}"
+
+    try:
+        r = _req.get(target, headers={"X-API-Key": EDINET_API_KEY}, timeout=15)
+        content_type = r.headers.get("Content-Type", "application/json; charset=utf-8")
+        return Response(r.content, status=r.status_code, content_type=content_type)
+    except _req.exceptions.Timeout:
+        return jsonify({"error": "タイムアウト"}), 504
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
 
 
 @app.route("/api/stocks")

@@ -1496,48 +1496,101 @@
     </script>
 
     <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-         EDINET DB 設定モーダル
+         設定モーダル（サーバー起動状態に応じて内容を切り替え）
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
     <div id="settings-modal" onclick="if(event.target===this)closeSettings()"
          style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:10001;align-items:center;justify-content:center;">
-      <div style="background:#141428;border:1px solid #334;border-radius:10px;padding:26px;width:440px;max-width:93vw;box-shadow:0 8px 40px #000c;">
-        <h3 style="color:#ccd;margin:0 0 20px;font-size:1rem;letter-spacing:.04em;">⚙ API 設定</h3>
-        <div style="margin-bottom:16px;">
-          <label style="color:#99a;font-size:0.8rem;display:block;margin-bottom:6px;">
-            EDINET DB APIキー
-            <a href="https://edinetdb.jp/developers" target="_blank"
-               style="color:#6699cc;font-size:0.73rem;margin-left:8px;">（無料取得 ↗）</a>
-          </label>
-          <input id="edinetdb-key-input" type="password" placeholder="edb_xxxxxxxx..." autocomplete="off"
-            style="width:100%;box-sizing:border-box;background:#0a0a1e;border:1px solid #445;color:#dde;
-                   padding:9px 11px;border-radius:5px;font-size:0.85rem;font-family:monospace;"/>
-          <div style="font-size:0.72rem;color:#556;margin-top:8px;line-height:1.6;">
-            設定すると IRBank の代わりに <strong style="color:#7799bb;">EDINET DB</strong>（有価証券報告書ベース）から財務データを優先取得します。<br>
-            APIキーはブラウザの <code style="color:#89a;">localStorage</code> にのみ保存されます。Free プランで 100回/日。
+      <div style="background:#141428;border:1px solid #334;border-radius:10px;padding:26px;width:460px;max-width:93vw;box-shadow:0 8px 40px #000c;">
+        <h3 style="color:#ccd;margin:0 0 18px;font-size:1rem;letter-spacing:.04em;">⚙ 設定</h3>
+
+        <!-- ── サーバー起動時 ── -->
+        <div id="settings-server-mode" style="display:none;">
+          <div id="settings-server-status" style="border:1px solid #334;border-radius:6px;padding:12px 14px;margin-bottom:14px;font-size:0.82rem;line-height:1.7;"></div>
+          <div style="background:#0d1a0d;border:1px solid #2a4a2a;border-radius:6px;padding:12px 14px;font-size:0.8rem;line-height:1.8;color:#8ba;">
+            <strong style="color:#adc;">EDINET DB APIキーの設定方法（サーバーモード）</strong><br>
+            <ol style="margin:6px 0 0 16px;padding:0;color:#89a;">
+              <li>プロジェクトフォルダの <code style="color:#bdc;background:#1a2a1a;padding:1px 5px;border-radius:3px;">.env</code> ファイルを開く
+                <small style="color:#667;">（なければ <code style="color:#bdc;">.env.example</code> をコピー）</small></li>
+              <li><code style="color:#bdc;background:#1a2a1a;padding:1px 5px;border-radius:3px;">EDINET_API_KEY=edb_xxx...</code> を記入して保存</li>
+              <li>サーバーを再起動（<code style="color:#bdc;">Ctrl+C</code> → <code style="color:#bdc;">start.bat</code>）</li>
+            </ol>
+            <div style="margin-top:8px;">APIキー無料取得:
+              <a href="https://edinetdb.jp/developers" target="_blank" style="color:#6af;">edinetdb.jp/developers ↗</a>
+            </div>
+          </div>
+          <div style="margin-top:14px;display:flex;justify-content:flex-end;">
+            <button onclick="closeSettings()"
+              style="background:#1e3a5f;border:1px solid #2a5a8a;color:#9bc;cursor:pointer;padding:6px 18px;border-radius:5px;font-size:0.82rem;">閉じる</button>
           </div>
         </div>
-        <div id="edinetdb-key-status" style="font-size:0.75rem;color:#5a8;min-height:1.2em;margin-bottom:10px;"></div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;">
-          <button onclick="closeSettings()"
-            style="background:transparent;border:1px solid #445;color:#889;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">キャンセル</button>
-          <button onclick="clearEdinetKey()"
-            style="background:#2a1515;border:1px solid #644;color:#c87;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">削除</button>
-          <button onclick="saveSettings()"
-            style="background:#1e3a5f;border:1px solid #2a5a8a;color:#9bc;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;font-weight:bold;">保存</button>
+
+        <!-- ── ファイル直接起動時（フォールバック: localStorage キー） ── -->
+        <div id="settings-file-mode" style="display:none;">
+          <div style="background:#1a1208;border:1px solid #554;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;color:#aa9;line-height:1.6;">
+            ⚠ <strong>ローカルサーバー未接続</strong><br>
+            <code style="color:#cc9;">start.bat</code> でサーバーを起動すると APIキーを安全に管理できます。<br>
+            今すぐ使う場合は下記に直接入力できますが、<strong>キーがブラウザに残ります</strong>。
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="color:#99a;font-size:0.8rem;display:block;margin-bottom:6px;">
+              EDINET DB APIキー
+              <a href="https://edinetdb.jp/developers" target="_blank"
+                 style="color:#6699cc;font-size:0.73rem;margin-left:8px;">（無料取得 ↗）</a>
+            </label>
+            <input id="edinetdb-key-input" type="password" placeholder="edb_xxxxxxxx..." autocomplete="off"
+              style="width:100%;box-sizing:border-box;background:#0a0a1e;border:1px solid #445;color:#dde;
+                     padding:9px 11px;border-radius:5px;font-size:0.85rem;font-family:monospace;"/>
+          </div>
+          <div id="edinetdb-key-status" style="font-size:0.75rem;color:#5a8;min-height:1.2em;margin-bottom:10px;"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button onclick="closeSettings()"
+              style="background:transparent;border:1px solid #445;color:#889;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">キャンセル</button>
+            <button onclick="clearEdinetKey()"
+              style="background:#2a1515;border:1px solid #644;color:#c87;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;">削除</button>
+            <button onclick="saveSettings()"
+              style="background:#1e3a5f;border:1px solid #2a5a8a;color:#9bc;cursor:pointer;padding:6px 16px;border-radius:5px;font-size:0.82rem;font-weight:bold;">保存</button>
+          </div>
         </div>
       </div>
     </div>
     <script>
-      function openSettings() {
-        const modal  = document.getElementById('settings-modal');
-        const inp    = document.getElementById('edinetdb-key-input');
-        const status = document.getElementById('edinetdb-key-status');
-        const saved  = localStorage.getItem('edinetdb_api_key') || '';
-        inp.value        = saved ? '••••••••' + saved.slice(-4) : '';
-        inp.dataset.masked = saved ? '1' : '';
-        status.textContent = saved ? '✓ APIキー設定済み' : '';
+      async function openSettings() {
+        const modal = document.getElementById('settings-modal');
         modal.style.display = 'flex';
-        if (!saved) inp.focus();
+        const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+        if (isLocal) {
+          // サーバーモード: /api/status でキー設定状況を確認
+          document.getElementById('settings-server-mode').style.display = 'block';
+          document.getElementById('settings-file-mode').style.display   = 'none';
+          const el = document.getElementById('settings-server-status');
+          el.innerHTML = '<span style="color:#777;">サーバー状態を確認中...</span>';
+          try {
+            const r = await fetch('/api/status');
+            const j = await r.json();
+            const keyOk = j.edinet_key_configured;
+            el.innerHTML = `
+              <span style="color:#4a9;">✓ サーバー接続済み</span>
+              &nbsp;|&nbsp;
+              EDINET DB APIキー:
+              <strong style="color:${keyOk ? '#5c5' : '#c55'};">
+                ${keyOk ? '✓ 設定済み' : '✗ 未設定'}
+              </strong>`;
+          } catch {
+            el.innerHTML = '<span style="color:#c55;">✗ サーバー応答なし</span>';
+          }
+        } else {
+          // ファイル直接起動モード: localStorage キー入力
+          document.getElementById('settings-server-mode').style.display = 'none';
+          document.getElementById('settings-file-mode').style.display   = 'block';
+          const inp    = document.getElementById('edinetdb-key-input');
+          const status = document.getElementById('edinetdb-key-status');
+          const saved  = localStorage.getItem('edinetdb_api_key') || '';
+          inp.value          = saved ? '••••••••' + saved.slice(-4) : '';
+          inp.dataset.masked = saved ? '1' : '';
+          status.textContent = saved ? '✓ APIキー設定済み' : '';
+          if (!saved) inp.focus();
+        }
       }
       function closeSettings() {
         document.getElementById('settings-modal').style.display = 'none';
@@ -1551,7 +1604,6 @@
       function saveSettings() {
         const inp = document.getElementById('edinetdb-key-input');
         const val = inp.value.trim();
-        // マスク表示のままなら変更なし
         if (inp.dataset.masked === '1' && val.startsWith('••••')) { closeSettings(); return; }
         if (val) {
           localStorage.setItem('edinetdb_api_key', val);
@@ -1563,7 +1615,6 @@
           setTimeout(closeSettings, 700);
         }
       }
-      // 入力フォーカス時にマスク解除
       document.getElementById('edinetdb-key-input').addEventListener('focus', function() {
         if (this.dataset.masked === '1') { this.value = ''; this.dataset.masked = ''; }
       });
@@ -2523,31 +2574,47 @@
         const PROXY        = 'https://corsproxy.io/?url=';  // 後方互換用（下記 proxyFetch を使用）
         const YF_BATCH     = 25;
 
-        // 複数CORSプロキシのフォールバック
-        // file:// (null origin) 対応: ACAO:* を返すプロキシを優先
-        const PROXY_LIST = [
+        // ─── プロキシ設定 ───────────────────────────────────────────────
+        // ローカルサーバー（localhost:5000）経由で起動している場合は
+        // /api/proxy エンドポイントを使用（CORS 問題なし・外部サービス不要）
+        // file:// で直接開いた場合は外部 CORS プロキシにフォールバック
+        const _isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+        // 外部フォールバック用プロキシリスト（file:// 起動時のみ使用）
+        const _FALLBACK_PROXIES = [
             u => `https://corsproxy.dev/?url=${encodeURIComponent(u)}`,
             u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
             u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
             u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-            u => `https://proxy.cors.sh/${u}`,
         ];
-        const PROXY_NAMES = ['corsproxy.dev', 'corsproxy.io', 'allorigins', 'codetabs', 'cors.sh'];
-        let _proxyIdx = 0;  // 動作中のプロキシインデックスをキャッシュ
+        const _FALLBACK_NAMES = ['corsproxy.dev', 'corsproxy.io', 'allorigins', 'codetabs'];
+        let _proxyIdx = 0;
+
         const proxyFetch = async (targetUrl, options = {}) => {
-            const n = PROXY_LIST.length;
+            // ① ローカルサーバー経由（推奨）
+            if (_isLocal) {
+                try {
+                    const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`, options);
+                    if (res.ok || res.status === 404) return res;
+                    console.warn(`[proxy] local server returned ${res.status} for ${targetUrl}`);
+                } catch (e) {
+                    console.warn('[proxy] local server error:', e.message);
+                }
+            }
+            // ② 外部 CORS プロキシにフォールバック（file:// 起動時など）
+            const n = _FALLBACK_PROXIES.length;
             const order = [_proxyIdx, ...[...Array(n).keys()].filter(i => i !== _proxyIdx)];
             for (const idx of order) {
                 try {
-                    const res = await fetch(PROXY_LIST[idx](targetUrl), options);
+                    const res = await fetch(_FALLBACK_PROXIES[idx](targetUrl), options);
                     if (res.ok || res.status === 404) {
-                        if (idx !== _proxyIdx) console.log(`[proxy] switched to ${PROXY_NAMES[idx]}`);
+                        if (idx !== _proxyIdx) console.log(`[proxy] switched to ${_FALLBACK_NAMES[idx]}`);
                         _proxyIdx = idx;
                         return res;
                     }
-                    console.warn(`[proxy] ${PROXY_NAMES[idx]} returned ${res.status}`);
+                    console.warn(`[proxy] ${_FALLBACK_NAMES[idx]} returned ${res.status}`);
                 } catch (e) {
-                    console.warn(`[proxy] ${PROXY_NAMES[idx]} error:`, e.message);
+                    console.warn(`[proxy] ${_FALLBACK_NAMES[idx]} error:`, e.message);
                 }
             }
             const w = document.getElementById('cors-warn');
@@ -3989,15 +4056,18 @@
         // APIキーが localStorage に保存されている場合のみ動作
         // ────────────────────────────────────────────────────────────────
         async function fetchEdinetDB(stockCode) {
-            const apiKey = localStorage.getItem('edinetdb_api_key');
-            if (!apiKey) return null;
-
-            const BASE = 'https://edinetdb.jp/v1';
-            const AUTH = { 'X-API-Key': apiKey };
+            // ローカルサーバー経由: APIキーはサーバー (.env) が管理
+            // ブラウザから直接開く場合: localStorage のキーで直接呼び出し
+            const BASE = _isLocal ? '/api/edinet' : 'https://edinetdb.jp/v1';
+            const apiKey = _isLocal ? null : localStorage.getItem('edinetdb_api_key');
+            if (!_isLocal && !apiKey) return null;
+            const AUTH = apiKey ? { 'X-API-Key': apiKey } : {};
 
             try {
-                // ① 証券コード → EDINETコードを検索（認証不要）
-                const sRes = await fetch(`${BASE}/search?q=${encodeURIComponent(stockCode)}`);
+                // ① 証券コード → EDINETコードを検索
+                //    ローカル: /api/edinet/search → サーバーが edinetdb.jp に中継
+                //    直接:    https://edinetdb.jp/v1/search （認証不要）
+                const sRes = await fetch(`${BASE}/search?q=${encodeURIComponent(stockCode)}`, { headers: AUTH });
                 if (!sRes.ok) { console.warn('[EdinetDB] 検索失敗:', sRes.status); return null; }
                 const sJson = await sRes.json();
                 const cList = Array.isArray(sJson.data) ? sJson.data
