@@ -45,7 +45,7 @@
             display: grid;
             grid-template-columns: minmax(800px, 1fr) 280px;
             grid-template-rows: auto 1fr auto;
-            height: 100vh;
+            height: 100%;
             max-width: 100vw;
             position: relative;
             z-index: 10;
@@ -1480,6 +1480,229 @@
             color: #88aaff;
             border-color: #5588ff;
         }
+
+        /* ─────────────────────────────────────────────────
+           メインタブナビゲーション
+        ───────────────────────────────────────────────── */
+        #main-tabs-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 44px;
+            background: rgba(8, 8, 18, 0.97);
+            border-bottom: 1px solid #1e1e2e;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 4px;
+            z-index: 100;
+        }
+        .main-tab {
+            padding: 6px 20px;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            color: #555;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+        }
+        .main-tab:hover { color: #aaa; border-color: #333; }
+        .main-tab.active {
+            color: #00ff88;
+            border-color: rgba(0, 255, 136, 0.4);
+            background: rgba(0, 255, 136, 0.07);
+        }
+
+        /* セクタービュー ラッパー */
+        #sector-view {
+            position: fixed;
+            top: 44px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+        }
+
+        /* ─────────────────────────────────────────────────
+           株価ウォッチビュー
+        ───────────────────────────────────────────────── */
+        #stocks-view {
+            position: fixed;
+            top: 44px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #080810;
+            overflow-y: auto;
+            display: none;
+            flex-direction: column;
+            padding: 24px 28px;
+        }
+
+        .wl-header-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .wl-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #ccc;
+            margin-right: 4px;
+        }
+        .wl-input {
+            padding: 10px 14px;
+            background: #151520;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 0.92rem;
+            outline: none;
+            width: 160px;
+            transition: border-color 0.2s;
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+        }
+        .wl-input:focus { border-color: #00ff88; }
+        .wl-btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+        }
+        .wl-btn.add { background: linear-gradient(135deg, #00ff88, #00cc6a); color: #0a0a0a; }
+        .wl-btn.refresh { background: linear-gradient(135deg, #0055ff, #0033cc); color: #fff; }
+        .wl-btn:hover { opacity: 0.85; }
+        .wl-last-updated { font-size: 0.72rem; color: #444; margin-left: 4px; }
+
+        /* ウォッチリスト グリッド */
+        .wl-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 14px;
+            align-content: start;
+        }
+
+        /* 個別カード */
+        .wl-card {
+            background: #0f0f1a;
+            border: 1px solid #1e1e2e;
+            border-left: 3px solid #333;
+            border-radius: 12px;
+            padding: 14px 16px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            position: relative;
+        }
+        .wl-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.6); border-top-color: #333; }
+        .wl-card.wl-up   { border-left-color: #00ff88; }
+        .wl-card.wl-down { border-left-color: #ff4444; }
+        .wl-card.wl-neu  { border-left-color: #444; }
+
+        .wl-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 6px;
+            padding-right: 20px;
+        }
+        .wl-company-name {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #ddd;
+            line-height: 1.3;
+            flex: 1;
+        }
+        .wl-code-badge {
+            font-size: 0.65rem;
+            color: #444;
+            background: #1a1a2a;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-top: 2px;
+        }
+        .wl-remove-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: #2a2a3a;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 3px 6px;
+            border-radius: 3px;
+            transition: color 0.2s, background 0.2s;
+            line-height: 1;
+        }
+        .wl-remove-btn:hover { color: #ff4444; background: rgba(255,68,68,0.1); }
+
+        .wl-price-row {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin: 4px 0 8px;
+        }
+        .wl-price {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #fff;
+            font-family: 'Inter', monospace;
+        }
+        .wl-change {
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+        .wl-change.wl-up   { color: #00ff88; }
+        .wl-change.wl-down { color: #ff4444; }
+        .wl-change.wl-neu  { color: #555; }
+
+        /* スパークライン */
+        .wl-sparkline {
+            width: 100%;
+            height: 44px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        /* 指標グリッド */
+        .wl-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 4px;
+        }
+        .wl-metric {
+            background: #0a0a18;
+            border-radius: 5px;
+            padding: 4px 6px;
+            text-align: center;
+        }
+        .wl-metric-label { font-size: 0.6rem; color: #444; margin-bottom: 2px; }
+        .wl-metric-value { font-size: 0.78rem; font-weight: 600; color: #aaa; }
+        .wl-metric-value.wl-up   { color: #00ff88; }
+        .wl-metric-value.wl-down { color: #ff4444; }
+        .wl-metric-value.wl-neu  { color: #555; }
+
+        /* 空/ロード状態 */
+        .wl-loading-text { color: #555; font-size: 0.82rem; }
+        .wl-empty {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: #2a2a3a;
+            padding: 80px 20px;
+            font-size: 1rem;
+            line-height: 2;
+        }
+
     </style>
 </head>
 <body>
@@ -1620,6 +1843,14 @@
       });
     </script>
 
+    <!-- ━━━━ メインタブナビゲーション ━━━━ -->
+    <div id="main-tabs-bar">
+        <button class="main-tab active" data-tab="sector" onclick="switchMainTab('sector')">📊 セクターマップ</button>
+        <button class="main-tab" data-tab="stocks" onclick="switchMainTab('stocks')">📈 株価ウォッチ</button>
+    </div>
+
+    <!-- ━━━━ セクターマップビュー ━━━━ -->
+    <div id="sector-view">
     <div class="container">
         <div class="main-section">
             <header>
@@ -1848,6 +2079,27 @@
             </div>
         </div>
     </div>
+    </div><!-- /#sector-view -->
+
+    <!-- ━━━━ 株価ウォッチビュー ━━━━ -->
+    <div id="stocks-view">
+        <div class="wl-header-row">
+            <span class="wl-title">📈 株価ウォッチ</span>
+            <input type="text" id="wl-add-input" class="wl-input"
+                   placeholder="証券コード（例: 7203）"
+                   maxlength="5"
+                   onkeydown="if(event.key==='Enter') wlSubmitAdd()">
+            <button class="wl-btn add" onclick="wlSubmitAdd()">＋ 追加</button>
+            <button class="wl-btn refresh" onclick="wlForceRefresh()">🔄 更新</button>
+            <span id="wl-last-updated" class="wl-last-updated"></span>
+        </div>
+        <div class="wl-grid" id="wl-grid">
+            <div class="wl-empty">
+                ウォッチリストは空です<br>
+                <span style="font-size:0.82rem;color:#222;">上の入力欄に証券コードを入力して「＋追加」を押してください</span>
+            </div>
+        </div>
+    </div><!-- /#stocks-view -->
 
     <script>
         // セクターアイコンマッピング
@@ -4785,6 +5037,228 @@
                 aoBody.innerHTML = `<div class="ao-error">エラーが発生しました。<br>しばらく経ってから再試行してください。</div>`;
             }
         }
+
+        // ─────────────────────────────────────────────────
+        //  メインタブ切り替え
+        // ─────────────────────────────────────────────────
+        function switchMainTab(tab) {
+            const sv = document.getElementById('sector-view');
+            const wv = document.getElementById('stocks-view');
+            if (sv) sv.style.display = tab === 'sector' ? 'block' : 'none';
+            if (wv) wv.style.display = tab === 'stocks' ? 'flex' : 'none';
+            document.querySelectorAll('.main-tab').forEach(el => {
+                el.classList.toggle('active', el.dataset.tab === tab);
+            });
+            if (tab === 'stocks') wlRender();
+        }
+
+        // ─────────────────────────────────────────────────
+        //  ウォッチリスト：localStorage 管理
+        // ─────────────────────────────────────────────────
+        const WL_KEY = 'stockWatchlist_v1';
+
+        function wlLoad() {
+            try { return JSON.parse(localStorage.getItem(WL_KEY) || '[]'); } catch { return []; }
+        }
+        function wlSave(list) { localStorage.setItem(WL_KEY, JSON.stringify(list)); }
+
+        function wlAdd(code) {
+            const list = wlLoad();
+            if (!list.includes(code)) { list.push(code); wlSave(list); }
+        }
+        function wlRemove(code) {
+            wlSave(wlLoad().filter(c => c !== code));
+            delete _wlCache[code];
+            wlRender();
+        }
+
+        function wlSubmitAdd() {
+            const inp  = document.getElementById('wl-add-input');
+            const code = (inp?.value || '').trim();
+            if (!code || !/^\d{4,5}$/.test(code)) { inp?.focus(); return; }
+            wlAdd(code);
+            inp.value = '';
+            delete _wlCache[code];
+            wlRender();
+        }
+
+        // ─────────────────────────────────────────────────
+        //  ウォッチリスト：データ取得
+        // ─────────────────────────────────────────────────
+        const _wlCache = {};
+        const WL_TTL   = 3 * 60 * 1000;  // 3分キャッシュ
+
+        async function wlFetchOne(code) {
+            const now = Date.now();
+            if (_wlCache[code] && now - _wlCache[code].at < WL_TTL) return _wlCache[code].v;
+
+            const ticker = `${code}.T`;
+            try {
+                // 1mチャート（スパークライン＋1m騰落率）と当日チャートを並列取得
+                const [m1, d1] = await Promise.all([
+                    fetchChartOne(ticker, '1m', true),
+                    fetchChartOne(ticker, '1d', false),
+                ]);
+                // 会社名は Yahoo Finance chart meta から取得
+                let name = null;
+                try {
+                    const res  = await proxyFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1d`);
+                    const json = await res.json();
+                    const meta = json.chart?.result?.[0]?.meta || {};
+                    name = meta.longName || meta.shortName || null;
+                } catch {}
+
+                const data = {
+                    code,
+                    name,
+                    price:    m1?.price ?? d1?.price ?? null,
+                    change1d: d1?.change ?? null,
+                    change1m: m1?.change ?? null,
+                    closes:   m1?.closes ?? null,
+                };
+                _wlCache[code] = { v: data, at: now };
+                return data;
+            } catch (e) {
+                console.warn('[WL] fetch error:', code, e);
+                return { code, name: null, price: null, change1d: null, change1m: null, closes: null };
+            }
+        }
+
+        // ─────────────────────────────────────────────────
+        //  ウォッチリスト：描画
+        // ─────────────────────────────────────────────────
+        function wlFmtPrice(v) {
+            if (v == null) return '--';
+            if (v >= 1000) return '¥' + v.toLocaleString('ja-JP', { maximumFractionDigits: 0 });
+            return '¥' + v.toFixed(2);
+        }
+        function wlFmtChange(v) {
+            if (v == null) return '--';
+            return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+        }
+        function wlDirClass(v) {
+            if (v == null) return 'wl-neu';
+            return v > 0 ? 'wl-up' : v < 0 ? 'wl-down' : 'wl-neu';
+        }
+
+        function wlSparkline(closes, isUp) {
+            if (!closes || closes.length < 2) return '';
+            const W = 260, H = 44, P = 2;
+            const mn = Math.min(...closes), mx = Math.max(...closes);
+            const range = mx - mn || 1;
+            const pts = closes.map((v, i) => {
+                const x = P + (i / (closes.length - 1)) * (W - P * 2);
+                const y = H - P - ((v - mn) / range) * (H - P * 2);
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
+            const col  = isUp ? '#00ff88' : '#ff4444';
+            const fill = isUp ? 'rgba(0,255,136,0.07)' : 'rgba(255,68,68,0.07)';
+            const first = pts.split(' ')[0].split(',');
+            const last  = pts.split(' ').pop().split(',');
+            const poly  = `${P},${H} ${pts} ${last[0]},${H}`;
+            return `<svg class="wl-sparkline" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+                <polygon points="${poly}" fill="${fill}"/>
+                <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>`;
+        }
+
+        function wlCardHtml(data, loading) {
+            if (loading) {
+                return `<div class="wl-card wl-neu" id="wl-card-${data.code}">
+                    <button class="wl-remove-btn" onclick="wlRemove('${data.code}')" title="削除">✕</button>
+                    <div class="wl-card-top">
+                        <div>
+                            <div class="wl-company-name wl-loading-text">取得中...</div>
+                            <div class="wl-code-badge">${data.code}</div>
+                        </div>
+                    </div>
+                    <div class="wl-price-row">
+                        <span class="wl-price" style="color:#333;">--</span>
+                    </div>
+                    <div style="height:44px;background:#0a0a18;border-radius:4px;margin-bottom:8px;"></div>
+                    <div class="wl-metrics">
+                        ${['前日比','1ヶ月','時価総額'].map(l => `<div class="wl-metric">
+                            <div class="wl-metric-label">${l}</div>
+                            <div class="wl-metric-value wl-neu">--</div>
+                        </div>`).join('')}
+                    </div>
+                </div>`;
+            }
+            const { code, name, price, change1d, change1m, closes } = data;
+            const dc  = wlDirClass(change1d);
+            const isUp = change1d != null && change1d > 0;
+            return `<div class="wl-card ${dc}" id="wl-card-${code}">
+                <button class="wl-remove-btn" onclick="wlRemove('${code}')" title="削除">✕</button>
+                <div class="wl-card-top">
+                    <div>
+                        <div class="wl-company-name">${name || code}</div>
+                        <div class="wl-code-badge">${code}</div>
+                    </div>
+                </div>
+                <div class="wl-price-row">
+                    <span class="wl-price">${wlFmtPrice(price)}</span>
+                    <span class="wl-change ${dc}">${wlFmtChange(change1d)}</span>
+                </div>
+                ${wlSparkline(closes, isUp)}
+                <div class="wl-metrics">
+                    <div class="wl-metric">
+                        <div class="wl-metric-label">前日比</div>
+                        <div class="wl-metric-value ${dc}">${wlFmtChange(change1d)}</div>
+                    </div>
+                    <div class="wl-metric">
+                        <div class="wl-metric-label">1ヶ月</div>
+                        <div class="wl-metric-value ${wlDirClass(change1m)}">${wlFmtChange(change1m)}</div>
+                    </div>
+                    <div class="wl-metric">
+                        <div class="wl-metric-label">株価</div>
+                        <div class="wl-metric-value">${wlFmtPrice(price)}</div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function wlRender() {
+            const list = wlLoad();
+            const grid = document.getElementById('wl-grid');
+            if (!grid) return;
+
+            if (list.length === 0) {
+                grid.innerHTML = `<div class="wl-empty">
+                    ウォッチリストは空です<br>
+                    <span style="font-size:0.82rem;color:#222;">上の入力欄に証券コードを入力して「＋追加」を押してください</span>
+                </div>`;
+                return;
+            }
+
+            // ローディングプレースホルダーを表示
+            grid.innerHTML = list.map(code => wlCardHtml({ code }, true)).join('');
+
+            // 4本ずつ並列取得
+            const CONC = 4;
+            for (let i = 0; i < list.length; i += CONC) {
+                const batch   = list.slice(i, i + CONC);
+                const results = await Promise.all(batch.map(c => wlFetchOne(c)));
+                results.forEach((data, idx) => {
+                    const el = document.getElementById(`wl-card-${batch[idx]}`);
+                    if (el) el.outerHTML = wlCardHtml(data, false);
+                });
+            }
+
+            const ts = document.getElementById('wl-last-updated');
+            if (ts) ts.textContent = '最終更新: ' + new Date().toLocaleTimeString('ja-JP');
+        }
+
+        async function wlForceRefresh() {
+            Object.keys(_wlCache).forEach(k => delete _wlCache[k]);
+            await wlRender();
+        }
+
+        // 5分ごとに自動更新（株価ウォッチタブが表示中のみ）
+        setInterval(() => {
+            const wv = document.getElementById('stocks-view');
+            if (wv && wv.style.display !== 'none') wlForceRefresh();
+        }, 5 * 60 * 1000);
+
     </script>
 
     <!-- セクター内銘柄比較パネル -->
